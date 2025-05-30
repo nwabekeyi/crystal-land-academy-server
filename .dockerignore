@@ -1,0 +1,30 @@
+# Node modules
+node_modules/
+
+# Log files
+*.log
+
+# Environment files
+.env
+
+# Temporary files and directories
+tmp/
+temp/
+
+# Dependency directories
+jspm_packages/
+
+# NPM package lock file
+package-lock.json
+
+# OS specific files
+.DS_Store
+Thumbs.db
+
+# Git directories
+.git/
+.gitignore
+
+# Dockerfile and build context related files
+Dockerfile
+.dockerignore

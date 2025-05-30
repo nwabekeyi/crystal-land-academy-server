@@ -1,0 +1,5 @@
+.env
+node_modules/
+# Firebase credentials
+configs/thetecharchival-firebase-adminsdk-1e78n-bf5af37d03.json
+
