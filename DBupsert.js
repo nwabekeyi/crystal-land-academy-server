@@ -1,41 +1,53 @@
 const mongoose = require("mongoose");
-const bcrypt = require("bcryptjs");
 const dotenv = require("dotenv");
-const Admin = require("./models/Staff/admin.model"); // Adjust the path to your Admin model
+const Admin = require("./models/Staff/admin.model"); // Adjust the path if needed
+const { hashPassword } = require("./handlers/passHash.handler"); // Adjust path if needed
 
 dotenv.config();
 
 const MONGO_URI = process.env.DB;
 
-const seedAdmin = async () => {
+const runMigration = async () => {
   try {
     await mongoose.connect(MONGO_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
 
+    // 1. Add `profilePictureUrl` field to admins who don't have it
+    const profileUpdateResult = await Admin.updateMany(
+      { profilePictureUrl: { $exists: false } },
+      { $set: { profilePictureUrl: null } }
+    );
+    console.log(`Updated ${profileUpdateResult.modifiedCount} admin documents with profilePictureUrl.`);
+
+    // 2. Add default admin if not exists
     const existingAdmin = await Admin.findOne({ email: "admin@crystallandacademy.com" });
 
-    if (existingAdmin) {
-      console.log("Admin already exists.");
-    } else {
-      const hashedPassword = await bcrypt.hash("admin123", 12);
+    if (!existingAdmin) {
+      const hashedPassword = await hashPassword("admin123");
 
-      const newAdmin = new Admin({
-        name: "Super Admin",
+      const newAdmin = await Admin.create({
+        firstName: "Super",
+        lastName: "Admin",
+        middleName: "Crystal",
         email: "admin@crystallandacademy.com",
         password: hashedPassword,
+        role: "admin",
+        profilePictureUrl: null,
       });
 
-      await newAdmin.save();
-      console.log("Admin created successfully.");
+      console.log("Default admin created:", newAdmin.email);
+    } else {
+      console.log("Default admin already exists.");
     }
 
-    mongoose.connection.close();
+    await mongoose.connection.close();
   } catch (error) {
     console.error("Migration failed:", error);
-    mongoose.connection.close();
+    await mongoose.connection.close();
+    process.exit(1);
   }
 };
 
-seedAdmin();
+runMigration();

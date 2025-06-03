@@ -5,18 +5,37 @@ const {
 const Teacher = require("../../models/Staff/teachers.model");
 const Admin = require("../../models/Staff/admin.model");
 const generateToken = require("../../utils/tokenGenerator");
-// Import responseStatus handler
 const responseStatus = require("../../handlers/responseStatus.handler");
 
 /**
  * Service to create a new teacher
- * @param {Object} data - Teacher data including name, email, and password
+ * @param {Object} data - Teacher data including all required fields
  * @param {string} adminId - ID of the admin creating the teacher
  * @param {Object} res - Express response object
  * @returns {Object} - Response object indicating success or failure
  */
 exports.createTeacherServices = async (data, adminId, res) => {
-  const { name, email, password } = data;
+  const {
+    firstName,
+    lastName,
+    middleName,
+    email,
+    password,
+    section,
+    gender,
+    NIN,
+    address,
+    qualification,
+    phoneNumber,
+    tribe,
+    religion,
+    bankAccountDetails,
+    program,
+    classLevel,
+    academicYear,
+    academicTerm,
+    subject,
+  } = data;
 
   // Check if the teacher already exists
   const existTeacher = await Teacher.findOne({ email });
@@ -30,12 +49,28 @@ exports.createTeacherServices = async (data, adminId, res) => {
   const admin = await Admin.findById(adminId);
   if (!admin) return responseStatus(res, 401, "fail", "Unauthorized access");
 
-  // Create teacher
+  // Create teacher with all required fields
   const createTeacher = await Teacher.create({
-    name,
+    firstName,
+    lastName,
+    middleName,
     email,
     password: hashedPassword,
     createdBy: admin._id,
+    section,
+    gender,
+    NIN,
+    address,
+    qualification,
+    phoneNumber,
+    tribe,
+    religion,
+    bankAccountDetails,
+    program,
+    classLevel,
+    academicYear,
+    academicTerm,
+    subject,
   });
 
   admin.teachers.push(createTeacher._id);
@@ -47,6 +82,7 @@ exports.createTeacherServices = async (data, adminId, res) => {
 /**
  * Service for teacher login
  * @param {Object} data - Login credentials including email and password
+ * @param {Object} res - Express response object
  * @returns {Object} - Response object with teacher details and token
  */
 exports.teacherLoginService = async (data, res) => {
@@ -99,7 +135,27 @@ exports.getTeacherProfileService = async (teacherId) => {
  * @returns {Object} - Response object with updated teacher details and token
  */
 exports.updateTeacherProfileService = async (data, teacherId, res) => {
-  const { name, email, password } = data;
+  const {
+    firstName,
+    lastName,
+    middleName,
+    email,
+    password,
+    section,
+    gender,
+    NIN,
+    address,
+    qualification,
+    phoneNumber,
+    tribe,
+    religion,
+    bankAccountDetails,
+    program,
+    classLevel,
+    academicYear,
+    academicTerm,
+    subject,
+  } = data;
 
   // Checking if the email already exists for another teacher
   if (email) {
@@ -114,11 +170,33 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
   // Hashing password if provided
   const hashedPassword = password ? await hashPassword(password) : null;
 
+  // Build update object with optional middleName and password
   const updateData = {
-    name,
+    firstName,
+    lastName,
+    middleName,
     email,
+    section,
+    gender,
+    NIN,
+    address,
+    qualification,
+    phoneNumber,
+    tribe,
+    religion,
+    bankAccountDetails,
+    program,
+    classLevel,
+    academicYear,
+    academicTerm,
+    subject,
     ...(hashedPassword && { password: hashedPassword }),
   };
+
+  // Remove undefined keys to avoid overwriting with undefined
+  Object.keys(updateData).forEach(
+    (key) => updateData[key] === undefined && delete updateData[key]
+  );
 
   // Find and update teacher
   const updatedTeacher = await Teacher.findByIdAndUpdate(
@@ -127,7 +205,10 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
     { new: true }
   );
 
-  return { teacher: updatedTeacher, token: generateToken(updatedTeacher._id) };
+  return {
+    teacher: updatedTeacher,
+    token: generateToken(updatedTeacher._id),
+  };
 };
 
 /**
@@ -137,7 +218,15 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
  * @returns {Object|string} - Updated teacher object or error message
  */
 exports.adminUpdateTeacherProfileService = async (data, teacherId) => {
-  const { program, classLevel, academicYear, subject } = data;
+  const {
+    program,
+    classLevel,
+    academicYear,
+    academicTerm,
+    subject,
+    isWithdrawn,
+    isSuspended,
+  } = data;
 
   // Checking if the teacher exists
   const teacherExist = await Teacher.findById(teacherId);
@@ -146,32 +235,16 @@ exports.adminUpdateTeacherProfileService = async (data, teacherId) => {
   // Check if teacher is withdrawn
   if (teacherExist.isWithdrawn) return "Action denied, teacher is withdrawn";
 
-  // Updating program
-  if (program) {
-    teacherExist.program = program;
-    await teacherExist.save();
-  }
+  // Update fields if provided
+  if (program !== undefined) teacherExist.program = program;
+  if (classLevel !== undefined) teacherExist.classLevel = classLevel;
+  if (academicYear !== undefined) teacherExist.academicYear = academicYear;
+  if (academicTerm !== undefined) teacherExist.academicTerm = academicTerm;
+  if (subject !== undefined) teacherExist.subject = subject;
+  if (isWithdrawn !== undefined) teacherExist.isWithdrawn = isWithdrawn;
+  if (isSuspended !== undefined) teacherExist.isSuspended = isSuspended;
 
-  // Updating classLevel
-  if (classLevel) {
-    teacherExist.classLevel = classLevel;
-    await teacherExist.save();
-  }
-
-  // Updating academic year
-  if (academicYear) {
-    teacherExist.academicYear = academicYear;
-    await teacherExist.save();
-  }
-
-  // Updating subject
-  if (subject) {
-    teacherExist.subject = subject;
-    await teacherExist.save();
-  }
+  await teacherExist.save();
 
   return teacherExist;
 };
-
-// Delete teacher account (No implementation provided)
-// exports.deleteTeacherAccountService = async () => {};

@@ -3,9 +3,17 @@ const { ObjectId } = mongoose.Schema;
 
 const teacherSchema = new mongoose.Schema(
   {
-    name: {
+    firstName: {
       type: String,
       required: true,
+    },
+    lastName: {
+      type: String,
+      required: true,
+    },
+    middleName: {
+      type: String,
+      required: false,
     },
     email: {
       type: String,
@@ -16,6 +24,10 @@ const teacherSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    profilePictureUrl: {
+      type: String,
+      required: false,
+    },
     dateEmployed: {
       type: Date,
       default: Date.now,
@@ -24,24 +36,22 @@ const teacherSchema = new mongoose.Schema(
       type: String,
       required: true,
       default: function () {
+        const initials =
+          (this.firstName?.[0] || "") +
+          (this.middleName?.[0] || "") +
+          (this.lastName?.[0] || "");
         return (
           "TEA" +
           Math.floor(100 + Math.random() * 900) +
           Date.now().toString().slice(2, 4) +
-          this.name
-            .split(" ")
-            .map((name) => name[0])
-            .join("")
-            .toUpperCase()
+          initials.toUpperCase()
         );
       },
     },
-    //if withdrawn, the teacher will not be able to login
     isWithdrawn: {
       type: Boolean,
       default: false,
     },
-    //if suspended, the teacher can login but cannot perform any task
     isSuspended: {
       type: Boolean,
       default: false,
@@ -53,23 +63,28 @@ const teacherSchema = new mongoose.Schema(
     subject: {
       type: ObjectId,
       ref: "Subject",
-      // required: true,
     },
     applicationStatus: {
       type: String,
       enum: ["pending", "approved", "rejected"],
       default: "pending",
     },
-
     program: {
       type: String,
     },
-    //A teacher can teach in more than one class level
     classLevel: {
       type: String,
     },
     academicYear: {
       type: String,
+    },
+    academicTerm: {
+      type: String,
+    },
+    createdBy: {
+      type: ObjectId,
+      ref: "Admin",
+      required: true,
     },
     examsCreated: [
       {
@@ -77,13 +92,71 @@ const teacherSchema = new mongoose.Schema(
         ref: "Exam",
       },
     ],
-    createdBy: {
-      type: ObjectId,
-      ref: "Admin",
+    section: {
+      type: String,
+      enum: ["primary", "secondary"],
       required: true,
     },
-    academicTerm: {
+    gender: {
       type: String,
+      enum: ["male", "female", "other"],
+      required: true,
+    },
+    NIN: {
+      type: String,
+      validate: {
+        validator: function (v) {
+          return /^\d{11}$/.test(v);
+        },
+        message: (props) => `${props.value} is not a valid 11-digit NIN.`,
+      },
+      required: true,
+    },
+    address: {
+      type: String,
+      required: true,
+    },
+    qualification: {
+      type: String,
+      required: true,
+      validate: {
+        validator: function (v) {
+          return /^(ssce|ond|hnd|bsc|mba|btech|msc|phd|other)$/i.test(v);
+        },
+        message: (props) =>
+          `${props.value} is not a valid qualification. Must be one of SSCE, OND, HND, Bsc, MBA, Btech, Msc, PhD, or Other.`,
+      },
+    },
+    phoneNumber: {
+      type: String,
+      required: true,
+    },
+    linkedInProfile: {
+      type: String,
+      required: false,
+    },
+    tribe: {
+      type: String,
+      required: true,
+    },
+    religion: {
+      type: String,
+      enum: ["christianity", "islam", "hinduism", "buddhism", "atheism", "other"],
+      required: true,
+    },
+    bankAccountDetails: {
+      accountName: { type: String, required: true },
+      accountNumber: {
+        type: String,
+        required: true,
+        validate: {
+          validator: function (v) {
+            return /^\d{10}$/.test(v);
+          },
+          message: (props) => `${props.value} is not a valid 10-digit account number.`,
+        },
+      },
+      bank: { type: String, required: true },
     },
   },
   {
@@ -91,7 +164,6 @@ const teacherSchema = new mongoose.Schema(
   }
 );
 
-//model
 const Teacher = mongoose.model("Teacher", teacherSchema);
 
 module.exports = Teacher;

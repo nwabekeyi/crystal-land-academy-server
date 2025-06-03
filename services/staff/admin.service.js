@@ -1,4 +1,3 @@
-// Import necessary modules
 const {
   hashPassword,
   isPassMatched,
@@ -11,13 +10,15 @@ const generateToken = require("../../utils/tokenGenerator");
  * Register admin service.
  *
  * @param {Object} data - The data containing information about the admin.
- * @param {string} data.name - The name of the admin.
+ * @param {string} data.firstName - The first name of the admin.
+ * @param {string} data.lastName - The last name of the admin.
+ * @param {string} [data.middleName] - The middle name of the admin (optional).
  * @param {string} data.email - The email of the admin.
  * @param {string} data.password - The password of the admin.
  * @returns {void} - The created admin object or an error message.
  */
 exports.registerAdminService = async (data, res) => {
-  const { name, email, password } = data;
+  const { firstName, lastName, middleName, email, password } = data;
 
   // Check if admin with the same email already exists
   const isAdminExist = await Admin.findOne({ email });
@@ -27,7 +28,9 @@ exports.registerAdminService = async (data, res) => {
   } else {
     // Create a new admin
     await Admin.create({
-      name,
+      firstName,
+      lastName,
+      middleName,
       email,
       password: await hashPassword(password),
     });
@@ -45,6 +48,7 @@ exports.registerAdminService = async (data, res) => {
  */
 exports.loginAdminService = async (data, res) => {
   const { email, password } = data;
+
   // Find the admin user by email
   const user = await Admin.findOne({ email });
   if (!user)
@@ -54,14 +58,18 @@ exports.loginAdminService = async (data, res) => {
   const isPassValid = await isPassMatched(password, user.password);
 
   if (isPassValid) {
-    // Generate a token and verify it
+    // Generate a token
     const token = generateToken(user._id);
+
     const result = {
       user: {
         _id: user._id,
-        name: user.name,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        middleName: user.middleName,
         email: user.email,
         role: user.role,
+        profilePictureUrl: user.profilePictureUrl,
       },
       token,
     };
@@ -95,11 +103,11 @@ exports.getSingleProfileService = async (id, res) => {
     .populate("academicYears")
     .populate("yearGroups")
     .populate("teachers")
-    .populate("classLevel")
+    .populate("classLevels")
     .populate("students");
 
   if (!user) {
-    return responseStatus(res, 201, "failed", "Admin doesn't exist ");
+    return responseStatus(res, 201, "failed", "Admin doesn't exist");
   } else {
     return responseStatus(res, 201, "success", user);
   }
@@ -110,35 +118,39 @@ exports.getSingleProfileService = async (id, res) => {
  *
  * @param {string} id - The ID of the admin user to be updated.
  * @param {Object} data - The data containing updated information about the admin.
+ * @param {string} data.firstName - The updated first name of the admin.
+ * @param {string} data.lastName - The updated last name of the admin.
+ * @param {string} [data.middleName] - The updated middle name of the admin (optional).
  * @param {string} data.email - The updated email of the admin.
- * @param {string} data.name - The updated name of the admin.
- * @param {string} data.password - The updated password of the admin.
+ * @param {string} [data.password] - The updated password of the admin (optional).
  * @returns {Object} - The updated admin object or an error message.
  */
 exports.updateAdminService = async (id, data, res) => {
-  const { email, name, password } = data;
+  const { firstName, lastName, middleName, email, password } = data;
 
-  // Check if the updated email already exists
+  // Check if the updated email already exists on another admin
   const emailTaken = await Admin.findOne({ email });
-  if (emailTaken) {
-    return "Email is already in use";
+  if (emailTaken && emailTaken._id.toString() !== id) {
+    return responseStatus(res, 400, "failed", "Email is already in use");
   }
 
+  // Prepare update data object
+  const updateData = {
+    firstName,
+    lastName,
+    middleName,
+    email,
+  };
+
+  // If password provided, hash and add it to update data
   if (password) {
-    // If password is provided, update it
-    const updateResult = await Admin.findByIdAndUpdate(
-      id,
-      { name, email, password: await hashPassword(password) },
-      { new: true }
-    ).select("-password -createdAt -updatedAt");
-    return responseStatus(res, 201, "success", updateResult);
-  } else {
-    // If no password provided, update only email and name
-    const findAdminAndUpdate = await Admin.findByIdAndUpdate(
-      id,
-      { email, name },
-      { new: true }
-    ).select("-password -createdAt -updatedAt");
-    return responseStatus(res, 201, "success", findAdminAndUpdate);
+    updateData.password = await hashPassword(password);
   }
+
+  // Update admin document
+  const updatedAdmin = await Admin.findByIdAndUpdate(id, updateData, {
+    new: true,
+  }).select("-password -createdAt -updatedAt");
+
+  return responseStatus(res, 201, "success", updatedAdmin);
 };

@@ -1,12 +1,19 @@
 const mongoose = require("mongoose");
-
 const { ObjectId } = mongoose.Schema;
 
 const adminSchema = new mongoose.Schema(
   {
-    name: {
+    firstName: {
       type: String,
       required: true,
+    },
+    lastName: {
+      type: String,
+      required: true,
+    },
+    middleName: {
+      type: String,
+      required: false,
     },
     email: {
       type: String,
@@ -17,7 +24,10 @@ const adminSchema = new mongoose.Schema(
       required: true,
       minlength: 8,
     },
-    
+    profilePictureUrl: {
+      type: String,
+      required: false,
+    },
     role: {
       type: String,
       default: "admin",
@@ -70,7 +80,6 @@ const adminSchema = new mongoose.Schema(
   }
 );
 
-//model
 const Admin = mongoose.model("Admin", adminSchema);
 
 module.exports = Admin;
