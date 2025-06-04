@@ -1,7 +1,6 @@
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
-const Admin = require("./models/Staff/admin.model"); // Adjust the path if needed
-const { hashPassword } = require("./handlers/passHash.handler"); // Adjust path if needed
+const Student = require("./models/Students/students.model");
 
 dotenv.config();
 
@@ -14,39 +13,17 @@ const runMigration = async () => {
       useUnifiedTopology: true,
     });
 
-    // 1. Add `profilePictureUrl` field to admins who don't have it
-    const profileUpdateResult = await Admin.updateMany(
-      { profilePictureUrl: { $exists: false } },
-      { $set: { profilePictureUrl: null } }
+    // Add `role: "student"` to all student documents that don't have it
+    const studentUpdateResult = await Student.updateMany(
+      { role: { $exists: false } },
+      { $set: { role: "student" } }
     );
-    console.log(`Updated ${profileUpdateResult.modifiedCount} admin documents with profilePictureUrl.`);
+    console.log(`Updated ${studentUpdateResult.modifiedCount} student documents with role: "student".`);
 
-    // 2. Add default admin if not exists
-    const existingAdmin = await Admin.findOne({ email: "admin@crystallandacademy.com" });
-
-    if (!existingAdmin) {
-      const hashedPassword = await hashPassword("admin123");
-
-      const newAdmin = await Admin.create({
-        firstName: "Super",
-        lastName: "Admin",
-        middleName: "Crystal",
-        email: "admin@crystallandacademy.com",
-        password: hashedPassword,
-        role: "admin",
-        profilePictureUrl: null,
-      });
-
-      console.log("Default admin created:", newAdmin.email);
-    } else {
-      console.log("Default admin already exists.");
-    }
-
-    await mongoose.connection.close();
+    mongoose.disconnect();
   } catch (error) {
-    console.error("Migration failed:", error);
-    await mongoose.connection.close();
-    process.exit(1);
+    console.error("Migration error:", error);
+    mongoose.disconnect();
   }
 };
 
