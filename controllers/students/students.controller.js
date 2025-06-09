@@ -56,9 +56,10 @@ exports.getStudentProfileController = async (req, res) => {
  **/
 exports.getAllStudentsByAdminController = async (req, res) => {
   try {
-    await getAllStudentsByAdminService(req.userAuth.id, res);
+    const students = await getAllStudentsByAdminService(); // Remove res from service call
+    return responseStatus(res, 200, "success", students); // Send students array directly
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    return responseStatus(res, 400, "failed", error.message);
   }
 };
 

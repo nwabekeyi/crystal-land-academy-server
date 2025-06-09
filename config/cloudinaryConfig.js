@@ -1,6 +1,10 @@
 // cloudinaryConfig.js
-import { v2 as cloudinary } from 'cloudinary';
-import { cloudinary_name, cloudinary_key, cloudinary_secret } from '../configs/envConfig.js';
+const cloudinary = require('cloudinary').v2;
+const {
+  cloudinary_name,
+  cloudinary_key,
+  cloudinary_secret,
+} = require('./env.Config');
 
 cloudinary.config({
   cloud_name: cloudinary_name,
@@ -8,4 +12,4 @@ cloudinary.config({
   api_secret: cloudinary_secret,
 });
 
-export default cloudinary;
+module.exports = cloudinary;

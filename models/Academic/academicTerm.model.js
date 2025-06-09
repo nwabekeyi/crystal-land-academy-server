@@ -17,6 +17,14 @@ const academicTermSchema = new mongoose.Schema(
       required: true,
       default: "3 months",
     },
+    startDate: {
+      type: Date,
+      required: true,
+    },
+    endDate: {
+      type: Date,
+      required: true,
+    },
     createdBy: {
       type: ObjectId,
       ref: "Admin",

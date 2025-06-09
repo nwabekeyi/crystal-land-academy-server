@@ -1,15 +1,15 @@
 // multerConfig.js
-import multer from 'multer';
-import { CloudinaryStorage } from 'multer-storage-cloudinary';
-import cloudinary from './cloudinaryConfig.js'; // must be the v2 instance
-import crypto from 'crypto';
-import path from 'path';
+const multer = require('multer');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
+const cloudinary = require('../config/cloudinaryConfig'); // must be the v2 instance
+const crypto = require('crypto');
+const path = require('path');
 
 /**
  * Generates a Multer instance with Cloudinary Storage to handle all file formats
  * @returns {multer} Multer instance configured with Cloudinary storage in 'crystal-land-academy' folder
  */
-export function createMulter() {
+function createMulter() {
   const storage = new CloudinaryStorage({
     cloudinary,
     params: async (req, file) => {
@@ -51,7 +51,7 @@ export function createMulter() {
  * @param {string | string[]} imageUrls - One or more secure Cloudinary URLs
  * @returns {Promise<object[]>} - Cloudinary deletion results
  */
-export async function deleteFromCloudinary(imageUrls) {
+async function deleteFromCloudinary(imageUrls) {
   if (!imageUrls) throw new Error('Image URL(s) are required');
   const urls = Array.isArray(imageUrls) ? imageUrls : [imageUrls];
 
@@ -76,3 +76,5 @@ export async function deleteFromCloudinary(imageUrls) {
 
   return Promise.all(deletions);
 }
+
+module.exports = { createMulter, deleteFromCloudinary };

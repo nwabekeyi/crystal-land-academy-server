@@ -11,11 +11,13 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  * @param {string} data.name - The name of the academic term.
  * @param {string} data.description - The description of the academic term.
  * @param {string} data.duration - The duration of the academic term.
+ * @param {Date} data.startDate - The start date of the academic term.
+ * @param {Date} data.endDate - The end date of the academic term.
  * @param {string} userId - The ID of the user creating the academic term.
  * @returns {Object} - The response object indicating success or failure.
  */
 exports.createAcademicTermService = async (data, userId) => {
-  const { name, description, duration } = data;
+  const { name, description, duration, startDate, endDate } = data;
 
   // Check if the academic term already exists
   const academicTerm = await AcademicTerm.findOne({ name });
@@ -28,6 +30,8 @@ exports.createAcademicTermService = async (data, userId) => {
     name,
     description,
     duration,
+    startDate,
+    endDate,
     createdBy: userId,
   });
 
@@ -66,23 +70,25 @@ exports.getAcademicTermService = async (id) => {
  * @param {string} data.name - The updated name of the academic term.
  * @param {string} data.description - The updated description of the academic term.
  * @param {string} data.duration - The updated duration of the academic term.
+ * @param {Date} data.startDate - The updated start date.
+ * @param {Date} data.endDate - The updated end date.
  * @param {string} academicId - The ID of the academic term to be updated.
  * @param {string} userId - The ID of the user updating the academic term.
  * @returns {Object} - The response object indicating success or failure.
  */
 exports.updateAcademicTermService = async (data, academicId, userId) => {
-  const { name, description, duration } = data;
+  const { name, description, duration, startDate, endDate } = data;
 
   // Check if the updated name already exists
   const createAcademicTermFound = await AcademicTerm.findOne({ name });
-  if (createAcademicTermFound) {
+  if (createAcademicTermFound && createAcademicTermFound._id.toString() !== academicId) {
     return responseStatus(res, 402, "failed", "Academic term already exists");
   }
 
   // Update the academic term
   const academicTerm = await AcademicTerm.findByIdAndUpdate(
     academicId,
-    { name, description, duration, createdBy: userId },
+    { name, description, duration, startDate, endDate, createdBy: userId },
     { new: true }
   );
 

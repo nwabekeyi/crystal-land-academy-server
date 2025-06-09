@@ -1,6 +1,32 @@
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 
+const teachingAssignmentSchema = new mongoose.Schema(
+  {
+    section: {
+      type: String,
+      enum: ["Primary", "Secondary"],
+      required: true,
+    },
+    className: {
+      type: String,
+      required: true, // e.g., "Primary 1", "JSS1", "SS2"
+    },
+    subclasses: [
+      {
+        type: String, // e.g., "A", "B", "C"
+        required: true,
+      },
+    ],
+    academicYear: {
+      type: ObjectId,
+      ref: "AcademicYear",
+      required: true,
+    },
+  },
+  { _id: false }
+);
+
 const teacherSchema = new mongoose.Schema(
   {
     firstName: {
@@ -11,23 +37,20 @@ const teacherSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
-    middleName: {
-      type: String,
-      required: false,
-    },
+    middleName: String,
     email: {
       type: String,
       required: true,
       index: true,
+      unique: true,
+      lowercase: true,
     },
     password: {
       type: String,
       required: true,
+      select: false,
     },
-    profilePictureUrl: {
-      type: String,
-      required: false,
-    },
+    profilePictureUrl: String,
     dateEmployed: {
       type: Date,
       default: Date.now,
@@ -35,6 +58,7 @@ const teacherSchema = new mongoose.Schema(
     teacherId: {
       type: String,
       required: true,
+      unique: true,
       default: function () {
         const initials =
           (this.firstName?.[0] || "") +
@@ -63,54 +87,28 @@ const teacherSchema = new mongoose.Schema(
     subject: {
       type: ObjectId,
       ref: "Subject",
+      required: true,
     },
     applicationStatus: {
       type: String,
       enum: ["pending", "approved", "rejected"],
       default: "pending",
     },
-    program: {
-      type: String,
-    },
-    classLevel: {
-      type: String,
-    },
-    academicYear: {
-      type: String,
-    },
-    academicTerm: {
-      type: String,
-    },
-    createdBy: {
-      type: ObjectId,
-      ref: "Admin",
-      required: true,
-    },
-    examsCreated: [
-      {
-        type: ObjectId,
-        ref: "Exam",
-      },
-    ],
-    section: {
-      type: String,
-      enum: ["primary", "secondary"],
-      required: true,
-    },
+    teachingAssignments: [teachingAssignmentSchema],
     gender: {
       type: String,
-      enum: ["male", "female", "other"],
+      enum: ["Male", "Female", "Other"],
       required: true,
     },
     NIN: {
       type: String,
+      required: true,
       validate: {
         validator: function (v) {
           return /^\d{11}$/.test(v);
         },
         message: (props) => `${props.value} is not a valid 11-digit NIN.`,
       },
-      required: true,
     },
     address: {
       type: String,
@@ -119,29 +117,20 @@ const teacherSchema = new mongoose.Schema(
     qualification: {
       type: String,
       required: true,
-      validate: {
-        validator: function (v) {
-          return /^(ssce|ond|hnd|bsc|mba|btech|msc|phd|other)$/i.test(v);
-        },
-        message: (props) =>
-          `${props.value} is not a valid qualification. Must be one of SSCE, OND, HND, Bsc, MBA, Btech, Msc, PhD, or Other.`,
-      },
+      enum: ["SSCE", "OND", "HND", "BSc", "MBA", "BTech", "MSc", "PhD", "Other"],
     },
     phoneNumber: {
       type: String,
       required: true,
     },
-    linkedInProfile: {
-      type: String,
-      required: false,
-    },
+    linkedInProfile: String,
     tribe: {
       type: String,
       required: true,
     },
     religion: {
       type: String,
-      enum: ["christianity", "islam", "hinduism", "buddhism", "atheism", "other"],
+      enum: ["Christianity", "Islam", "Hinduism", "Buddhism", "Atheism", "Other"],
       required: true,
     },
     bankAccountDetails: {
@@ -163,6 +152,10 @@ const teacherSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Indexes for efficient querying
+teacherSchema.index({ teacherId: 1 });
+teacherSchema.index({ "teachingAssignments.section": 1, "teachingAssignments.className": 1 });
 
 const Teacher = mongoose.model("Teacher", teacherSchema);
 

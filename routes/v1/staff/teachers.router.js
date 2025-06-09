@@ -1,10 +1,16 @@
+// routes/teachers.js
 const express = require("express");
 const teachersRouter = express.Router();
-//middleware
+
+// Middleware
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 const isAdmin = require("../../../middlewares/isAdmin");
 const isTeacher = require("../../../middlewares/isTeacher");
-//controllers
+const { createMulter } = require("../../../middlewares/fileUpload"); // Import Multer config
+
+const upload = createMulter(); // Initialize Multer
+
+// Controllers
 const {
   createTeacherController,
   teacherLoginController,
@@ -13,27 +19,48 @@ const {
   updateTeacherProfileController,
   adminUpdateTeacherProfileController,
 } = require("../../../controllers/staff/teachers.controller");
-// create teacher
+
+// Create teacher
 teachersRouter
   .route("/create-teacher")
-  .post(isLoggedIn, isAdmin, createTeacherController);
-// teacher login
-teachersRouter.route("/teacher/login").post(teacherLoginController);
-//get all teachers
+  .post(
+    isLoggedIn,
+    isAdmin,
+    upload.single('photo'), // Upload profile picture
+    createTeacherController
+  );
+
+// Teacher login
+teachersRouter.route("/login").post(teacherLoginController);
+
+// Get all teachers
 teachersRouter
   .route("/teachers")
   .get(isLoggedIn, isAdmin, getAllTeachersController);
-// get teacher profile
+
+// Get teacher profile
 teachersRouter
   .route("/teacher/:teacherId/profile")
   .get(isLoggedIn, isTeacher, getTeacherProfileController);
-// teacher update own profile
+
+// Teacher update own profile
 teachersRouter
-  .route("/teacher/update-profile")
-  .patch(isLoggedIn, isTeacher, updateTeacherProfileController);
-// admin update user profile
+  .route("/teacher/update")
+  .patch(
+    isLoggedIn,
+    isTeacher,
+    upload.single('photo'), // Optional profile picture update
+    updateTeacherProfileController
+  );
+
+// Admin update teacher profile
 teachersRouter
-  .route("/teacher/:teachersId/update-profile")
-  .patch(isLoggedIn, isAdmin, adminUpdateTeacherProfileController);
+  .route("/teacher/:id/update")
+  .patch(
+    isLoggedIn,
+    isAdmin,
+    upload.single('photo'), // Upload profile picture
+    adminUpdateTeacherProfileController
+  );
 
 module.exports = teachersRouter;

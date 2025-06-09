@@ -1,3 +1,4 @@
+// routes/students.js
 const express = require("express");
 const studentsRouter = express.Router();
 
@@ -5,6 +6,9 @@ const studentsRouter = express.Router();
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 const isAdmin = require("../../../middlewares/isAdmin");
 const isStudent = require("../../../middlewares/isStudent");
+const { createMulter } = require("../../../middlewares/fileUpload");
+
+const upload = createMulter(); // Initialize Multer
 
 // Controllers
 const {
@@ -21,7 +25,12 @@ const {
 // Create Student by Admin
 studentsRouter
   .route("/students/admin/register")
-  .post(isLoggedIn, isAdmin, adminRegisterStudentController);
+  .post(
+    isLoggedIn,
+    isAdmin,
+    upload.single('profilePicture'), // Apply Multer for profile picture upload
+    adminRegisterStudentController
+  );
 
 // Student Login
 studentsRouter.route("/students/login").post(studentLoginController);
@@ -49,9 +58,14 @@ studentsRouter
 // Admin Update Student Profile
 studentsRouter
   .route("/:studentId/update/admin")
-  .patch(isLoggedIn, isAdmin, adminUpdateStudentController);
+  .patch(
+    isLoggedIn,
+    isAdmin,
+    upload.single('profilePicture'), // Apply Multer for profile picture update
+    adminUpdateStudentController
+  );
 
-// student write exam
+// Student Write Exam
 studentsRouter
   .route("/students/:examId/exam-write")
   .post(isLoggedIn, isStudent, studentWriteExamController);

@@ -5,6 +5,7 @@ const {
   getAcademicTermService,
   updateAcademicTermService,
   deleteAcademicTermService,
+
 } = require("../../services/academic/academicTerm.service");
 
 /**
@@ -79,3 +80,6 @@ exports.deleteAcademicTermController = async (req, res) => {
     responseStatus(res, 400, "failed", error.message);
   }
 };
+
+
+

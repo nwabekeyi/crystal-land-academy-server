@@ -1,100 +1,390 @@
-// Import necessary models
-const AcademicYear = require("../../models/Academic/academicYear.model");
-// Import responseStatus handler
+// services/student.service.js
+const {
+  hashPassword,
+  isPassMatched,
+} = require("../../handlers/passHash.handler");
+const Admin = require("../../models/Staff/admin.model");
+const Student = require("../../models/Students/students.model");
+const Exam = require("../../models/Academic/exams.model");
+const Results = require("../../models/Academic/results.model");
+const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const { resultCalculate } = require("../../functions/resultCalculate.function");
+const AcademicYear = require("../../models/Academic/academicYear.model");
+const { createMulter, deleteFromCloudinary } = require("../../middlewares/fileUpload"); // Import Multer config
+
+const upload = createMulter(); // Create Multer instance
 
 /**
- * Create academic years service.
+ * Admin registration service for creating a new student.
  *
- * @param {Object} data - The data containing information about the academic year.
- * @param {string} data.name - The name of the academic year.
- * @param {string} data.fromYear - The starting year of the academic year.
- * @param {string} data.toYear - The ending year of the academic year.
- * @param {string} userId - The ID of the user creating the academic year.
+ * @param {Object} data - The data containing information about the new student.
+ * @param {Object} file - The uploaded profile picture file (from Multer).
+ * @param {string} adminId - The ID of the admin creating the student.
+ * @param {Object} res - The Express response object.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.createAcademicYearService = async (data, userId) => {
-  const { name, fromYear, toYear } = data;
+exports.adminRegisterStudentService = async (data, file, adminId, res) => {
+  const {
+    firstName,
+    lastName,
+    middleName,
+    tribe,
+    gender,
+    religion,
+    NIN,
+    formalSchool,
+    guardians,
+    email,
+    password,
+    currentClassLevel,
+    boardingStatus,
+    boardingDetails,
+    prefectName,
+  } = data;
 
-  // Check if the academic year already exists
-  const academicYear = await AcademicYear.findOne({ name });
-  if (academicYear) {
-    return responseStatus(res, 402, "failed", "Academic year already exists");
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
+    return responseStatus(res, 401, "failed", "Unauthorized access!");
   }
 
-  // Create the academic year
-  const academicYearCreated = await AcademicYear.create({
-    name,
-    fromYear,
-    toYear,
-    createdBy: userId,
+  const studentExists = await Student.findOne({ email });
+  if (studentExists) {
+    return responseStatus(res, 409, "failed", "Student already enrolled");
+  }
+
+  const hashedPassword = await hashPassword(password);
+
+  // Find current academic year
+  const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+  if (!currentAcademicYear) {
+    return responseStatus(res, 400, "failed", "No current academic year set.");
+  }
+
+  // Validate currentClassLevel
+  if (!currentClassLevel || !currentClassLevel.section || !currentClassLevel.className || !currentClassLevel.subclass) {
+    return responseStatus(res, 400, "failed", "Invalid class level data");
+  }
+
+  // Validate boardingDetails for boarders
+  if (boardingStatus === "Boarder" && (!boardingDetails || !boardingDetails.hall || !boardingDetails.roomNumber)) {
+    return responseStatus(res, 400, "failed", "Boarding details required for boarders");
+  }
+
+  // Handle profile picture upload
+  let profilePictureUrl = "";
+  if (file) {
+    profilePictureUrl = file.path; // Cloudinary secure URL
+  } else {
+    return responseStatus(res, 400, "failed", "Profile picture is required");
+  }
+
+  // Create new student
+  const newStudent = await Student.create({
+    firstName,
+    lastName,
+    middleName,
+    tribe,
+    gender,
+    profilePictureUrl,
+    religion,
+    NIN,
+    formalSchool,
+    guardians,
+    email,
+    password: hashedPassword,
+    currentClassLevel: {
+      ...currentClassLevel,
+      academicYear: currentAcademicYear._id,
+    },
+    boardingStatus,
+    boardingDetails: boardingStatus === "Boarder" ? boardingDetails : undefined,
+    prefectName,
   });
 
-  // Push the academic year into the admin's academicYears array
-  const admin = await Admin.findById(userId);
-  admin.academicYears.push(academicYearCreated._id);
+  // Add student to admin
+  admin.students.push(newStudent._id);
   await admin.save();
 
-  // Send the response
-  return responseStatus(res, 201, "success", academicYearCreated);
+  // Add student to current academic year's student array
+  currentAcademicYear.students.push(newStudent._id);
+  await currentAcademicYear.save();
+
+  return responseStatus(res, 201, "success", newStudent);
 };
 
 /**
- * Get all academic years service.
+ * Student login service.
  *
- * @returns {Array} - An array of all academic years.
- */
-exports.getAcademicYearsService = async () => {
-  return await AcademicYear.find();
-};
-
-/**
- * Get academic year by ID service.
- *
- * @param {string} id - The ID of the academic year.
- * @returns {Object} - The academic year object.
- */
-exports.getAcademicYearService = async (id) => {
-  return await AcademicYear.findById(id);
-};
-
-/**
- * Update academic year service.
- *
- * @param {Object} data - The data containing updated information about the academic year.
- * @param {string} data.name - The updated name of the academic year.
- * @param {string} data.fromYear - The updated starting year of the academic year.
- * @param {string} data.toYear - The updated ending year of the academic year.
- * @param {string} academicId - The ID of the academic year to be updated.
- * @param {string} userId - The ID of the user updating the academic year.
+ * @param {Object} data - The data containing information about the login.
+ * @param {Object} res - The Express response object.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.updateAcademicYearService = async (data, academicId, userId) => {
-  const { name, fromYear, toYear } = data;
+exports.studentLoginService = async (data, res) => {
+  const { email, password } = data;
 
-  // Check if the updated name already exists
-  const createAcademicYearFound = await AcademicYear.findOne({ name });
-  if (createAcademicYearFound) {
-    return responseStatus(res, 402, "failed", "Academic year already exists");
-  }
+  // Find the student including password field explicitly
+  const student = await Student.findOne({ email }).select("+password");
+  if (!student)
+    return responseStatus(res, 401, "failed", "Invalid login credentials");
 
-  // Update the academic year
-  const academicYear = await AcademicYear.findByIdAndUpdate(
-    academicId,
-    { name, fromYear, toYear, createdBy: userId },
-    { new: true }
-  );
+  // Verify password
+  const isMatched = await isPassMatched(password, student.password);
+  if (!isMatched)
+    return responseStatus(res, 401, "failed", "Invalid login credentials");
 
-  // Send the response
-  return responseStatus(res, 201, "success", academicYear);
+  // Remove password before sending back
+  const studentObj = student.toObject();
+  delete studentObj.password;
+
+  const responseData = { student: studentObj, token: generateToken(student._id) };
+  return responseStatus(res, 200, "success", responseData);
 };
 
 /**
- * Delete academic year service.
+ * Get student profile service.
  *
- * @param {string} id - The ID of the academic year to be deleted.
- * @returns {Object} - The deleted academic year object.
+ * @param {string} id - The ID of the student.
+ * @param {Object} res - The Express response object.
+ * @returns {Object} - The response object indicating success or failure.
  */
-exports.deleteAcademicYearService = async (id) => {
-  return await AcademicYear.findByIdAndDelete(id);
+exports.getStudentsProfileService = async (id, res) => {
+  const student = await Student.findById(id).select(
+    "-password -createdAt -updatedAt"
+  );
+  if (!student) return responseStatus(res, 404, "failed", "Student not found");
+  return responseStatus(res, 200, "success", student);
+};
+
+/**
+ * Get all students service (for admin use).
+ *
+ * @param {Object} res - The Express response object.
+ * @returns {Object} - The response object indicating success or failure.
+ */
+exports.getAllStudentsByAdminService = async (res) => {
+  const students = await Student.find({});
+  return responseStatus(res, 200, "success", students);
+};
+
+/**
+ * Get a single student by admin.
+ *
+ * @param {string} studentId - The ID of the student.
+ * @param {Object} res - The Express response object.
+ * @returns {Object} - The response object indicating success or failure.
+ */
+exports.getStudentByAdminService = async (studentId, res) => {
+  const student = await Student.findById(studentId);
+  if (!student) return responseStatus(res, 404, "failed", "Student not found");
+  return responseStatus(res, 200, "success", student);
+};
+
+/**
+ * Student update profile service.
+ *
+ * @param {Object} data - The data containing information about the updated profile.
+ * @param {string} userId - The ID of the student.
+ * @param {Object} res - The Express response object.
+ * @returns {Object} - The response object indicating success or failure.
+ */
+exports.studentUpdateProfileService = async (data, userId, res) => {
+  const { email, password } = data;
+
+  // Check if email is taken by another student (exclude self)
+  const emailExists = await Student.findOne({ email, _id: { $ne: userId } });
+  if (emailExists)
+    return responseStatus(res, 409, "failed", "This email is taken/exist");
+
+  const updateFields = { email };
+  if (password) {
+    updateFields.password = await hashPassword(password);
+  }
+
+  const updatedStudent = await Student.findByIdAndUpdate(userId, updateFields, {
+    new: true,
+    runValidators: true,
+  });
+
+  return responseStatus(res, 200, "success", updatedStudent);
+};
+
+/**
+ * Admin update Student service.
+ *
+ * @param {Object} data - The data containing information about the updated student.
+ * @param {Object} file - The uploaded profile picture file (from Multer).
+ * @param {string} studentId - The ID of the student.
+ * @param {Object} res - The Express response object.
+ * @returns {Object} - The response object indicating success or failure.
+ */
+exports.adminUpdateStudentService = async (data, file, studentId, res) => {
+  const {
+    firstName,
+    lastName,
+    middleName,
+    tribe,
+    gender,
+    religion,
+    NIN,
+    formalSchool,
+    guardians,
+    email,
+    currentClassLevel,
+    boardingStatus,
+    boardingDetails,
+    prefectName,
+    isGraduated,
+    isWithdrawn,
+    isSuspended,
+    yearGraduated,
+  } = data;
+
+  // Find student
+  const studentFound = await Student.findById(studentId);
+  if (!studentFound)
+    return responseStatus(res, 404, "failed", "Student not found");
+
+  // Validate currentClassLevel if provided
+  if (currentClassLevel && (!currentClassLevel.section || !currentClassLevel.className || !currentClassLevel.subclass)) {
+    return responseStatus(res, 400, "failed", "Invalid class level data");
+  }
+
+  // Validate boardingDetails for boarders
+  if (boardingStatus === "Boarder" && (!boardingDetails || !boardingDetails.hall || !boardingDetails.roomNumber)) {
+    return responseStatus(res, 400, "failed", "Boarding details required for boarders");
+  }
+
+  // Find current academic year if updating class level
+  let academicYearId = studentFound.currentClassLevel?.academicYear;
+  if (currentClassLevel) {
+    const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+    if (!currentAcademicYear) {
+      return responseStatus(res, 400, "failed", "No current academic year set.");
+    }
+    academicYearId = currentAcademicYear._id;
+  }
+
+  // Handle profile picture upload
+  let profilePictureUrl = studentFound.profilePictureUrl;
+  if (file) {
+    // Delete old profile picture from Cloudinary if it exists
+    if (profilePictureUrl) {
+      try {
+        await deleteFromCloudinary(profilePictureUrl);
+      } catch (err) {
+        console.error('Failed to delete old profile picture:', err);
+      }
+    }
+    profilePictureUrl = file.path; // New Cloudinary secure URL
+  }
+
+  // Update student
+  const updatedStudent = await Student.findByIdAndUpdate(
+    studentId,
+    {
+      $set: {
+        firstName,
+        lastName,
+        middleName,
+        tribe,
+        gender,
+        profilePictureUrl,
+        religion,
+        NIN,
+        formalSchool,
+        guardians,
+        email,
+        currentClassLevel: currentClassLevel
+          ? { ...currentClassLevel, academicYear: academicYearId }
+          : studentFound.currentClassLevel,
+        boardingStatus,
+        boardingDetails: boardingStatus === "Boarder" ? boardingDetails : undefined,
+        prefectName,
+        isGraduated,
+        isWithdrawn,
+        isSuspended,
+        yearGraduated,
+      },
+    },
+    {
+      new: true,
+      runValidators: true,
+    }
+  );
+
+  return responseStatus(res, 200, "success", updatedStudent);
+};
+
+/**
+ * Student write exam service.
+ *
+ * @param {Object} data - The data containing answers to the exam.
+ * @param {string} studentId - The ID of the student.
+ * @param {string} examId - The ID of the exam.
+ * @param {Object} res - The Express response object.
+ * @returns {Object} - The response object indicating success or failure.
+ */
+exports.studentWriteExamService = async (data, studentId, examId, res) => {
+  const { answers } = data;
+
+  // Find the student
+  const student = await Student.findById(studentId);
+  if (!student) return responseStatus(res, 404, "failed", "Student not found");
+
+  // Find the exam
+  const findExam = await Exam.findById(examId);
+  if (!findExam) return responseStatus(res, 404, "failed", "Exam not found");
+
+  // Check if the student already took the exam
+  const alreadyExamTaken = await Results.findOne({
+    studentId: student._id,
+    exam: examId,
+  });
+  if (alreadyExamTaken)
+    return responseStatus(res, 400, "failed", "Already written the exam!");
+
+  // Check if suspended or withdrawn
+  if (student.isSuspended || student.isWithdrawn)
+    return responseStatus(
+      res,
+      403,
+      "failed",
+      "You are not eligible to attend this exam"
+    );
+
+  // Verify all questions are answered
+  const questions = findExam.questions || [];
+  if (questions.length !== answers.length)
+    return responseStatus(
+      res,
+      400,
+      "failed",
+      "You have not answered all the questions"
+    );
+
+  // Calculate result
+  const result = await resultCalculate(questions, answers, findExam);
+
+  // Create result record
+  const createResult = await Results.create({
+    studentId: student._id,
+    teacher: findExam.createdBy,
+    exam: findExam._id,
+    score: result.score,
+    grade: result.grade,
+    passMark: findExam.passMark,
+    status: result.status,
+    remarks: result.remarks,
+    answeredQuestions: result.answeredQuestions,
+    classLevel: student.currentClassLevel,
+    academicTerm: findExam.academicTerm,
+    academicYear: findExam.academicYear,
+  });
+
+  // Push exam result ref to student and save
+  student.examResults.push(createResult._id);
+  await student.save();
+
+  return responseStatus(res, 200, "success", "Answer Submitted");
 };

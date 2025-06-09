@@ -1,11 +1,48 @@
 const mongoose = require("mongoose");
 
 const guardianSchema = new mongoose.Schema({
-  name: String,
-  relationship: String,
-  phone: String,
-  email: String,
+  name: { type: String, required: true },
+  relationship: { type: String, required: true },
+  phone: { type: String, required: true },
+  email: { type: String, lowercase: true },
   address: String,
+}, { _id: false });
+
+const classLevelSchema = new mongoose.Schema({
+  section: {
+    type: String,
+    enum: ["Primary", "Secondary"],
+    required: true,
+  },
+  className: {
+    type: String,
+    required: true, // e.g., "Primary 1", "JSS1", "SS2"
+  },
+  subclass: {
+    type: String, // e.g., "A", "B", "C" for subclasses like JSS1A, JSS1B
+    required: true,
+  },
+  academicYear: {
+    type: String,
+    required: true, // e.g., "2024/2025"
+  },
+}, { _id: false });
+
+const boardingDetailsSchema = new mongoose.Schema({
+  hall: {
+    type: String,
+    required: true, // e.g., "Hall A", "Hall B"
+  },
+  roomNumber: {
+    type: String, // e.g., "Room 101"
+    required: true,
+  },
+  bedNumber: {
+    type: String, // e.g., "Bed 1"
+  },
+  houseMaster: {
+    type: String, // Name or ID of the house master
+  },
 }, { _id: false });
 
 const studentSchema = new mongoose.Schema(
@@ -22,18 +59,17 @@ const studentSchema = new mongoose.Schema(
     gender: {
       type: String,
       enum: ["Male", "Female", "Other"],
+      required: true,
     },
     role: {
       type: String,
       default: "student",
     },
     profilePictureUrl: String,
-    section: String,
     religion: String,
     tribe: String,
     NIN: String,
     formalSchool: String,
-
     email: {
       type: String,
       required: true,
@@ -45,18 +81,21 @@ const studentSchema = new mongoose.Schema(
       required: true,
       select: false,
     },
-
     guardians: [guardianSchema],
-
-    currentClassLevels: [
-      {
-        type: String,
+    currentClassLevel: classLevelSchema,
+    boardingStatus: {
+      type: String,
+      enum: ["Boarder", "Day Student"],
+      required: true,
+      default: "Day Student",
+    },
+    boardingDetails: {
+      type: boardingDetailsSchema,
+      required: function () {
+        return this.boardingStatus === "Boarder";
       },
-    ],
-    academicYear: String,
-    program: String,
+    },
     prefectName: String,
-
     isGraduated: {
       type: Boolean,
       default: false,
@@ -70,7 +109,6 @@ const studentSchema = new mongoose.Schema(
       default: false,
     },
     yearGraduated: String,
-
     examResults: [
       {
         type: mongoose.Schema.Types.ObjectId,
@@ -82,5 +120,16 @@ const studentSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+// Validation to ensure boardingDetails is not provided for Day Students
+studentSchema.pre("validate", function (next) {
+  if (this.boardingStatus === "Day Student") {
+    this.boardingDetails = undefined;
+  }
+  next();
+});
+
+studentSchema.index({ "currentClassLevel.section": 1, "currentClassLevel.className": 1, "currentClassLevel.subclass": 1 });
+studentSchema.index({ boardingStatus: 1, "boardingDetails.hall": 1 });
 
 module.exports = mongoose.model("Student", studentSchema);

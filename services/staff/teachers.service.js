@@ -1,3 +1,4 @@
+// services/teachers.service.js
 const {
   hashPassword,
   isPassMatched,
@@ -6,22 +7,24 @@ const Teacher = require("../../models/Staff/teachers.model");
 const Admin = require("../../models/Staff/admin.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const AcademicYear = require("../../models/Academic/academicYear.model");
+const { deleteFromCloudinary } = require("../../middlewares/fileUpload"); // Import Multer config
 
 /**
  * Service to create a new teacher
  * @param {Object} data - Teacher data including all required fields
+ * @param {Object} file - The uploaded profile picture file (from Multer)
  * @param {string} adminId - ID of the admin creating the teacher
  * @param {Object} res - Express response object
  * @returns {Object} - Response object indicating success or failure
  */
-exports.createTeacherServices = async (data, adminId, res) => {
+exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
   const {
     firstName,
     lastName,
     middleName,
     email,
     password,
-    section,
     gender,
     NIN,
     address,
@@ -30,34 +33,61 @@ exports.createTeacherServices = async (data, adminId, res) => {
     tribe,
     religion,
     bankAccountDetails,
-    program,
-    classLevel,
-    academicYear,
-    academicTerm,
     subject,
+    teachingAssignments,
+    linkedInProfile,
   } = data;
 
-  // Check if the teacher already exists
-  const existTeacher = await Teacher.findOne({ email });
-  if (existTeacher)
-    return responseStatus(res, 402, "failed", "Teacher already exists");
+  // Validate admin
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
+    return responseStatus(res, 401, "failed", "Unauthorized access!");
+  }
 
-  // Hashing password
+  // Check if teacher email exists
+  const teacherExists = await Teacher.findOne({ email });
+  if (teacherExists) {
+    return responseStatus(res, 409, "failed", "Teacher already registered");
+  }
+
+  // Hash password
   const hashedPassword = await hashPassword(password);
 
-  // Finding admin
-  const admin = await Admin.findById(adminId);
-  if (!admin) return responseStatus(res, 401, "fail", "Unauthorized access");
+  // Find current academic year
+  const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+  if (!currentAcademicYear) {
+    return responseStatus(res, 400, "failed", "No current academic year set.");
+  }
 
-  // Create teacher with all required fields
-  const createTeacher = await Teacher.create({
+  // Validate teachingAssignments
+  if (
+    teachingAssignments &&
+    teachingAssignments.some(
+      (assignment) =>
+        !assignment.section ||
+        !assignment.className ||
+        !assignment.subclasses?.length ||
+        !assignment.academicYear
+    )
+  ) {
+    return responseStatus(res, 400, "failed", "Invalid teaching assignments data");
+  }
+
+  // Handle profile picture upload
+  let profilePictureUrl = "";
+  if (file) {
+    profilePictureUrl = file.path; // Cloudinary secure URL
+  } else {
+    return responseStatus(res, 400, "failed", "Profile picture is required");
+  }
+
+  // Create new teacher
+  const newTeacher = await Teacher.create({
     firstName,
     lastName,
     middleName,
     email,
     password: hashedPassword,
-    createdBy: admin._id,
-    section,
     gender,
     NIN,
     address,
@@ -66,17 +96,22 @@ exports.createTeacherServices = async (data, adminId, res) => {
     tribe,
     religion,
     bankAccountDetails,
-    program,
-    classLevel,
-    academicYear,
-    academicTerm,
     subject,
+    teachingAssignments: teachingAssignments || [],
+    profilePictureUrl,
+    linkedInProfile,
+    createdBy: adminId,
   });
 
-  admin.teachers.push(createTeacher._id);
+  // Add teacher to admin
+  admin.teachers.push(newTeacher._id);
   await admin.save();
 
-  return responseStatus(res, 200, "success", createTeacher);
+  // Add teacher to current academic year's teachers array
+  currentAcademicYear.teachers.push(newTeacher._id);
+  await currentAcademicYear.save();
+
+  return responseStatus(res, 201, "success", newTeacher);
 };
 
 /**
@@ -88,20 +123,24 @@ exports.createTeacherServices = async (data, adminId, res) => {
 exports.teacherLoginService = async (data, res) => {
   const { email, password } = data;
 
-  // Checking if the teacher exists
-  const teacherFound = await Teacher.findOne({ email });
-
-  if (!teacherFound)
-    return responseStatus(res, 402, "failed", "Invalid login credentials");
-
-  // Comparing password with the hashed one
-  const isMatched = await isPassMatched(password, teacherFound?.password);
-
-  if (!isMatched)
+  // Find teacher with password
+  const teacherFound = await Teacher.findOne({ email }).select("+password");
+  if (!teacherFound) {
     return responseStatus(res, 401, "failed", "Invalid login credentials");
+  }
+
+  // Compare password
+  const isMatched = await isPassMatched(password, teacherFound.password);
+  if (!isMatched) {
+    return responseStatus(res, 401, "failed", "Invalid login credentials");
+  }
+
+  // Remove password from response
+  const teacherObj = teacherFound.toObject();
+  delete teacherObj.password;
 
   const response = {
-    teacher: teacherFound,
+    teacher: teacherObj,
     token: generateToken(teacherFound._id),
   };
 
@@ -113,7 +152,7 @@ exports.teacherLoginService = async (data, res) => {
  * @returns {Array} - Array of all teacher objects
  */
 exports.getAllTeachersService = async () => {
-  return await Teacher.find();
+  return await Teacher.find().select("-password");
 };
 
 /**
@@ -122,9 +161,7 @@ exports.getAllTeachersService = async () => {
  * @returns {Object} - Teacher profile object with selected fields
  */
 exports.getTeacherProfileService = async (teacherId) => {
-  return await Teacher.findById(teacherId).select(
-    "-createdAt -updatedAt -password"
-  );
+  return await Teacher.findById(teacherId).select("-password -createdAt -updatedAt");
 };
 
 /**
@@ -134,14 +171,13 @@ exports.getTeacherProfileService = async (teacherId) => {
  * @param {Object} res - Express response object
  * @returns {Object} - Response object with updated teacher details and token
  */
-exports.updateTeacherProfileService = async (data, teacherId, res) => {
+exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
   const {
     firstName,
     lastName,
     middleName,
     email,
     password,
-    section,
     gender,
     NIN,
     address,
@@ -150,33 +186,42 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
     tribe,
     religion,
     bankAccountDetails,
-    program,
-    classLevel,
-    academicYear,
-    academicTerm,
-    subject,
+    linkedInProfile,
   } = data;
 
-  // Checking if the email already exists for another teacher
+  // Check if email is taken by another teacher
   if (email) {
     const emailExist = await Teacher.findOne({
       email,
       _id: { $ne: teacherId },
     });
-    if (emailExist)
-      return responseStatus(res, 402, "failed", "Email already in use");
+    if (emailExist) {
+      return responseStatus(res, 409, "failed", "Email already in use");
+    }
   }
 
-  // Hashing password if provided
-  const hashedPassword = password ? await hashPassword(password) : null;
+  // Hash password if provided
+  const hashedPassword = password ? await hashPassword(password) : undefined;
 
-  // Build update object with optional middleName and password
+  // Handle profile picture upload
+  let profilePictureUrl = (await Teacher.findById(teacherId)).profilePictureUrl;
+  if (file) {
+    if (profilePictureUrl) {
+      try {
+        await deleteFromCloudinary(profilePictureUrl);
+      } catch (err) {
+        console.error('Failed to delete old profile picture:', err.message);
+      }
+    }
+    profilePictureUrl = file.path; // New Cloudinary secure URL
+  }
+
+  // Build update object
   const updateData = {
     firstName,
     lastName,
     middleName,
     email,
-    section,
     gender,
     NIN,
     address,
@@ -185,25 +230,26 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
     tribe,
     religion,
     bankAccountDetails,
-    program,
-    classLevel,
-    academicYear,
-    academicTerm,
-    subject,
+    profilePictureUrl,
+    linkedInProfile,
     ...(hashedPassword && { password: hashedPassword }),
   };
 
-  // Remove undefined keys to avoid overwriting with undefined
+  // Remove undefined keys
   Object.keys(updateData).forEach(
     (key) => updateData[key] === undefined && delete updateData[key]
   );
 
-  // Find and update teacher
+  // Update teacher
   const updatedTeacher = await Teacher.findByIdAndUpdate(
     teacherId,
     updateData,
-    { new: true }
-  );
+    { new: true, runValidators: true }
+  ).select("-password");
+
+  if (!updatedTeacher) {
+    return responseStatus(res, 404, "failed", "Teacher not found");
+  }
 
   return {
     teacher: updatedTeacher,
@@ -214,37 +260,116 @@ exports.updateTeacherProfileService = async (data, teacherId, res) => {
 /**
  * Service for admin to update teacher profile
  * @param {Object} data - Updated data for the teacher
+ * @param {Object} file - The uploaded profile picture file (from Multer)
  * @param {string} teacherId - ID of the teacher
- * @returns {Object|string} - Updated teacher object or error message
+ * @param {Object} res - Express response object
+ * @returns {Object} - Response object with updated teacher details
  */
-exports.adminUpdateTeacherProfileService = async (data, teacherId) => {
+exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) => {
   const {
-    program,
-    classLevel,
-    academicYear,
-    academicTerm,
+    firstName,
+    lastName,
+    middleName,
+    email,
+    gender,
+    NIN,
+    address,
+    qualification,
+    phoneNumber,
+    tribe,
+    religion,
+    bankAccountDetails,
     subject,
+    teachingAssignments,
     isWithdrawn,
     isSuspended,
+    applicationStatus,
+    linkedInProfile,
   } = data;
 
-  // Checking if the teacher exists
+  // Check if teacher exists
   const teacherExist = await Teacher.findById(teacherId);
-  if (!teacherExist) return "No such teacher found";
+  if (!teacherExist) {
+    return responseStatus(res, 404, "failed", "No such teacher found");
+  }
+
+  // Check if email is taken by another teacher
+  if (email && email !== teacherExist.email) {
+    const emailExist = await Teacher.findOne({
+      email,
+      _id: { $ne: teacherId },
+    });
+    if (emailExist) {
+      return responseStatus(res, 409, "failed", "Email already in use");
+    }
+  }
+
+  // Validate teachingAssignments if provided
+  if (
+    teachingAssignments &&
+    teachingAssignments.some(
+      (assignment) =>
+        !assignment.section ||
+        !assignment.className ||
+        !assignment.subclasses?.length ||
+        !assignment.academicYear
+    )
+  ) {
+    return responseStatus(res, 400, "failed", "Invalid teaching assignments data");
+  }
 
   // Check if teacher is withdrawn
-  if (teacherExist.isWithdrawn) return "Action denied, teacher is withdrawn";
+  if (teacherExist.isWithdrawn && isWithdrawn !== false) {
+    return responseStatus(res, 403, "failed", "Action denied, teacher is withdrawn");
+  }
 
-  // Update fields if provided
-  if (program !== undefined) teacherExist.program = program;
-  if (classLevel !== undefined) teacherExist.classLevel = classLevel;
-  if (academicYear !== undefined) teacherExist.academicYear = academicYear;
-  if (academicTerm !== undefined) teacherExist.academicTerm = academicTerm;
-  if (subject !== undefined) teacherExist.subject = subject;
-  if (isWithdrawn !== undefined) teacherExist.isWithdrawn = isWithdrawn;
-  if (isSuspended !== undefined) teacherExist.isSuspended = isSuspended;
+  // Handle profile picture upload
+  let profilePictureUrl = teacherExist.profilePictureUrl;
+  if (file) {
+    if (profilePictureUrl) {
+      try {
+        await deleteFromCloudinary(profilePictureUrl);
+      } catch (err) {
+        console.error('Failed to delete old profile picture:', err.message);
+      }
+    }
+    profilePictureUrl = file.path; // New Cloudinary secure URL
+  }
 
-  await teacherExist.save();
+  // Build update object
+  const updateData = {
+    firstName,
+    lastName,
+    middleName,
+    email,
+    gender,
+    NIN,
+    address,
+    qualification,
+    phoneNumber,
+    tribe,
+    religion,
+    bankAccountDetails,
+    subject,
+    teachingAssignments,
+    isWithdrawn,
+    isSuspended,
+    applicationStatus,
+    profilePictureUrl,
+    linkedInProfile,
+  };
 
-  return teacherExist;
+  // Remove undefined keys
+  Object.keys(updateData).forEach(
+    (key) => updateData[key] === undefined && delete updateData[key]
+  );
+
+  // Update teacher
+  const updatedTeacher = await Teacher.findByIdAndUpdate(
+    teacherId,
+    { $set: updateData },
+    { new: true, runValidators: true }
+  ).select("-password");
+
+  return responseStatus(res, 200, "success", updatedTeacher);
 };

@@ -9,6 +9,7 @@ const Results = require("../../models/Academic/results.model");
 const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { resultCalculate } = require("../../functions/resultCalculate.function");
+const AcademicYear = require("../../models/Academic/academicYear.model");
 
 /**
  * Admin registration service for creating a new student.
@@ -26,35 +27,47 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
     tribe,
     gender,
     profilePictureUrl,
-    section,
     religion,
     NIN,
     formalSchool,
     guardians,
     email,
     password,
-    currentClassLevels,
-    academicYear,
-    program,
+    currentClassLevel, // Updated to single object
+    boardingStatus,
+    boardingDetails,
     prefectName,
   } = data;
 
-  // Check admin existence
   const admin = await Admin.findById(adminId);
   if (!admin) {
     return responseStatus(res, 405, "failed", "Unauthorized access!");
   }
 
-  // Check if student already exists
   const studentExists = await Student.findOne({ email });
   if (studentExists) {
     return responseStatus(res, 402, "failed", "Student already enrolled");
   }
 
-  // Hash password
   const hashedPassword = await hashPassword(password);
 
-  // Create new student document with all fields from schema
+  // Find current academic year
+  const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+  if (!currentAcademicYear) {
+    return responseStatus(res, 400, "failed", "No current academic year set.");
+  }
+
+  // Validate currentClassLevel
+  if (!currentClassLevel || !currentClassLevel.section || !currentClassLevel.className || !currentClassLevel.subclass) {
+    return responseStatus(res, 400, "failed", "Invalid class level data");
+  }
+
+  // Validate boardingDetails for boarders
+  if (boardingStatus === "Boarder" && (!boardingDetails || !boardingDetails.hall || !boardingDetails.roomNumber)) {
+    return responseStatus(res, 400, "failed", "Boarding details required for boarders");
+  }
+
+  // Create new student
   const newStudent = await Student.create({
     firstName,
     lastName,
@@ -62,22 +75,28 @@ exports.adminRegisterStudentService = async (data, adminId, res) => {
     tribe,
     gender,
     profilePictureUrl,
-    section,
     religion,
     NIN,
     formalSchool,
     guardians,
     email,
     password: hashedPassword,
-    currentClassLevels,
-    academicYear,
-    program,
+    currentClassLevel: {
+      ...currentClassLevel,
+      academicYear: currentAcademicYear._id, // Set academicYear inside currentClassLevel
+    },
+    boardingStatus,
+    boardingDetails: boardingStatus === "Boarder" ? boardingDetails : undefined,
     prefectName,
   });
 
-  // Link student to admin
+  // Add student to admin
   admin.students.push(newStudent._id);
   await admin.save();
+
+  // Add student to current academic year's student array
+  currentAcademicYear.students.push(newStudent._id);
+  await currentAcademicYear.save();
 
   return responseStatus(res, 200, "success", newStudent);
 };
@@ -131,9 +150,9 @@ exports.getStudentsProfileService = async (id, res) => {
  * @param {Object} res - The Express response object.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.getAllStudentsByAdminService = async (res) => {
+exports.getAllStudentsByAdminService = async () => {
   const students = await Student.find({});
-  return responseStatus(res, 200, "success", students);
+  return students;
 };
 
 /**
@@ -194,15 +213,14 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
     tribe,
     gender,
     profilePictureUrl,
-    section,
     religion,
     NIN,
     formalSchool,
     guardians,
     email,
-    currentClassLevels,
-    academicYear,
-    program,
+    currentClassLevel,
+    boardingStatus,
+    boardingDetails,
     prefectName,
     isGraduated,
     isWithdrawn,
@@ -215,7 +233,27 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
   if (!studentFound)
     return responseStatus(res, 402, "failed", "Student not found");
 
-  // Update with all fields, add to currentClassLevels with $addToSet
+  // Validate currentClassLevel if provided
+  if (currentClassLevel && (!currentClassLevel.section || !currentClassLevel.className || !currentClassLevel.subclass)) {
+    return responseStatus(res, 400, "failed", "Invalid class level data");
+  }
+
+  // Validate boardingDetails for boarders
+  if (boardingStatus === "Boarder" && (!boardingDetails || !boardingDetails.hall || !boardingDetails.roomNumber)) {
+    return responseStatus(res, 400, "failed", "Boarding details required for boarders");
+  }
+
+  // Find current academic year if updating class level
+  let academicYearId = studentFound.currentClassLevel?.academicYear;
+  if (currentClassLevel) {
+    const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+    if (!currentAcademicYear) {
+      return responseStatus(res, 400, "failed", "No current academic year set.");
+    }
+    academicYearId = currentAcademicYear._id;
+  }
+
+  // Update student
   const updatedStudent = await Student.findByIdAndUpdate(
     studentId,
     {
@@ -226,22 +264,21 @@ exports.adminUpdateStudentService = async (data, studentId, res) => {
         tribe,
         gender,
         profilePictureUrl,
-        section,
         religion,
         NIN,
         formalSchool,
         guardians,
         email,
-        academicYear,
-        program,
+        currentClassLevel: currentClassLevel
+          ? { ...currentClassLevel, academicYear: academicYearId }
+          : studentFound.currentClassLevel,
+        boardingStatus,
+        boardingDetails: boardingStatus === "Boarder" ? boardingDetails : undefined,
         prefectName,
         isGraduated,
         isWithdrawn,
         isSuspended,
         yearGraduated,
-      },
-      $addToSet: {
-        currentClassLevels,
       },
     },
     {
@@ -314,7 +351,7 @@ exports.studentWriteExamService = async (data, studentId, examId, res) => {
     status: result.status,
     remarks: result.remarks,
     answeredQuestions: result.answeredQuestions,
-    classLevel: findExam.classLevel,
+    classLevel: student.currentClassLevel, // Updated to use currentClassLevel
     academicTerm: findExam.academicTerm,
     academicYear: findExam.academicYear,
   });
