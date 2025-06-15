@@ -16,17 +16,60 @@ const classLevelSchema = new mongoose.Schema({
   },
   className: {
     type: String,
-    required: true, // e.g., "Primary 1", "JSS1", "SS2"
+    required: true,
+    enum: [
+      "Kindergarten",
+      "Reception",
+      "Nursery 1",
+      "Nursery 2",
+      "Primary 1",
+      "Primary 2",
+      "Primary 3",
+      "Primary 4",
+      "Primary 5",
+      "Primary 6",
+      "JSS 1",
+      "JSS 2",
+      "JSS 3",
+      "SS 1",
+      "SS 2",
+      "SS 3",
+    ],
   },
   subclass: {
-    type: String, // e.g., "A", "B", "C" for subclasses like JSS1A, JSS1B
+    type: String,
     required: true,
+    match: /^[A-Z]$/, // Single uppercase letter (e.g., "A", "B")
   },
   academicYear: {
     type: String,
     required: true, // e.g., "2024/2025"
   },
 }, { _id: false });
+
+// Validate className based on section
+classLevelSchema.pre('validate', function (next) {
+  const primaryClasses = [
+    "Kindergarten",
+    "Reception",
+    "Nursery 1",
+    "Nursery 2",
+    "Primary 1",
+    "Primary 2",
+    "Primary 3",
+    "Primary 4",
+    "Primary 5",
+    "Primary 6",
+  ];
+  const secondaryClasses = ["JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"];
+
+  if (this.section === "Primary" && !primaryClasses.includes(this.className)) {
+    next(new Error(`Invalid class name for Primary section: ${this.className}`));
+  } else if (this.section === "Secondary" && !secondaryClasses.includes(this.className)) {
+    next(new Error(`Invalid class name for Secondary section: ${this.className}`));
+  }
+  next();
+});
 
 const boardingDetailsSchema = new mongoose.Schema({
   hall: {
@@ -47,6 +90,11 @@ const boardingDetailsSchema = new mongoose.Schema({
 
 const studentSchema = new mongoose.Schema(
   {
+    studentId: {
+      type: String,
+      unique: true,
+      required: true,
+    },
     firstName: {
       type: String,
       required: true,
@@ -58,7 +106,7 @@ const studentSchema = new mongoose.Schema(
     middleName: String,
     gender: {
       type: String,
-      enum: ["Male", "Female", "Other"],
+      enum: ["Male", "Female"],
       required: true,
     },
     role: {
@@ -68,7 +116,7 @@ const studentSchema = new mongoose.Schema(
     profilePictureUrl: String,
     religion: String,
     tribe: String,
-    NIN: String,
+    NIN: { type: String, unique: true },
     formalSchool: String,
     email: {
       type: String,

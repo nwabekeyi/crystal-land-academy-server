@@ -1,3 +1,4 @@
+// controllers/academic/academicYear.controller.js
 const responseStatus = require("../../handlers/responseStatus.handler");
 const {
   createAcademicYearService,
@@ -16,9 +17,11 @@ const {
  **/
 exports.createAcademicYearController = async (req, res) => {
   try {
-    await createAcademicYearService(req.body, req.userAuth.id, res);
+    await createAcademicYearService(res, req.body);
+    // Response is handled by the service
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    // Handle unexpected errors (though unlikely since service handles responses)
+    responseStatus(res, 500, "error", error.message || "Internal server error");
   }
 };
 
@@ -29,10 +32,10 @@ exports.createAcademicYearController = async (req, res) => {
  **/
 exports.getAcademicYearsController = async (req, res) => {
   try {
-    const result = await getAcademicYearsService();
-    responseStatus(res, 201, "success", result);
+    await getAcademicYearsService(res);
+    // Response is handled by the service
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "error", error.message || "Internal server error");
   }
 };
 
@@ -43,53 +46,51 @@ exports.getAcademicYearsController = async (req, res) => {
  **/
 exports.getAcademicYearController = async (req, res) => {
   try {
-    const result = await getAcademicYearService(req.params.id);
-    responseStatus(res, 201, "success", result);
+    await getAcademicYearService(res, req.params.id);
+    // Response is handled by the service
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "error", error.message || "Internal server error");
   }
 };
 
 /**
  * @desc Update Academic Year
- * @route Patch /api/v1/academic-years/:id
+ * @route PATCH /api/v1/academic-years/:id
  * @access Private
  **/
 exports.updateAcademicYearController = async (req, res) => {
   try {
-    await updateAcademicYearService(req.body, req.params.id, req.userAuth.id);
+    await updateAcademicYearService(res, req.body, req.params.id, req.userAuth.id);
+    // Response is handled by the service
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "error", error.message || "Internal server error");
   }
 };
 
 /**
  * @desc Delete Academic Year
- * @route Delete /api/v1/academic-years/:id
+ * @route DELETE /api/v1/academic-years/:id
  * @access Private
  **/
 exports.deleteAcademicYearController = async (req, res) => {
   try {
-    const result = await deleteAcademicYearService(req.params.id);
-    responseStatus(res, 201, "success", result);
+    await deleteAcademicYearService(res, req.params.id);
+    // Response is handled by the service
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "error", error.message || "Internal server error");
   }
 };
-
 
 /**
  * @desc Get current Academic Year
  * @route GET /api/v1/academic-years/current
  * @access Private
  **/
+// controllers/academic/academicYear.controller.js
 exports.getCurrentAcademicYearController = async (req, res) => {
-  try {
-    const result = await getCurrentAcademicYearService();
-    responseStatus(res, 200, "success", result);
-  } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
-  }
+  console.log('called'); // Keep for debugging
+  await getCurrentAcademicYearService(res);
+  // No catch needed; service handles all errors
 };
 
 /**
@@ -99,10 +100,9 @@ exports.getCurrentAcademicYearController = async (req, res) => {
  **/
 exports.changeCurrentAcademicYearController = async (req, res) => {
   try {
-    const result = await changeCurrentAcademicYearService(req.params.id, res);
-    // Note: responseStatus is already handled inside the service, so this line is optional.
-    // If you want to move response handling here, update the service to return plain data instead.
+    await changeCurrentAcademicYearService(res, req.params.id);
+    // Response is handled by the service
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "error", error.message || "Internal server error");
   }
 };

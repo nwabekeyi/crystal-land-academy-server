@@ -1,10 +1,11 @@
 const express = require("express");
 const morgan = require("morgan");
+const path = require("path");
+const cors = require("cors");
 const routeSync = require("../handlers/routeSync.handler");
-const cors = require('cors');
-const { verifyEnv } = require('../config/env.Config');
+const { verifyEnv } = require("../config/env.Config");
 
-// Verify all env
+// Verify all environment variables
 verifyEnv();
 
 // Initialize the Express application
@@ -14,7 +15,7 @@ const app = express();
 app.use(express.json());
 app.use(morgan("dev"));
 
-// Initialize CORS with allowed origins
+// CORS configuration
 app.use(cors({
   origin: [
     "http://localhost:5174",
@@ -23,21 +24,22 @@ app.use(cors({
   credentials: true
 }));
 
-// Initialize staff route
+// Register backend routes
 routeSync(app, "staff");
-// Initialize academic route
 routeSync(app, "academic");
-// Initialize student route
 routeSync(app, "students");
 
-// Define a default route
-app.get("/", (req, res) => {
-  res.send("Server is running!");
+// Serve static files from the frontend build
+app.use(express.static(path.join(__dirname, "../public/dist")));
+
+// Serve the index.html file on root or any unmatched route (for SPA support)
+app.get("*", (req, res) => {
+  res.sendFile(path.join(__dirname, "../public/dist/index.html"));
 });
 
-// Handle invalid routes
+// Optional catch-all for truly invalid requests (if needed after above)
 app.all("*", (req, res) => {
-  res.send("Invalid Route");
+  res.status(404).send("Invalid Route");
 });
 
 module.exports = app;

@@ -10,12 +10,31 @@ const teachingAssignmentSchema = new mongoose.Schema(
     },
     className: {
       type: String,
-      required: true, // e.g., "Primary 1", "JSS1", "SS2"
+      required: true,
+      enum: [
+        "Kindergarten",
+        "Reception",
+        "Nursery 1",
+        "Nursery 2",
+        "Primary 1",
+        "Primary 2",
+        "Primary 3",
+        "Primary 4",
+        "Primary 5",
+        "Primary 6",
+        "JSS 1",
+        "JSS 2",
+        "JSS 3",
+        "SS 1",
+        "SS 2",
+        "SS 3",
+      ],
     },
     subclasses: [
       {
-        type: String, // e.g., "A", "B", "C"
+        type: String,
         required: true,
+        match: /^[A-Z]$/, // Single uppercase letter
       },
     ],
     academicYear: {
@@ -153,7 +172,30 @@ const teacherSchema = new mongoose.Schema(
   }
 );
 
-// Indexes for efficient querying
+// Validate className based on section
+teachingAssignmentSchema.pre('validate', function (next) {
+  const primaryClasses = [
+    "Kindergarten",
+    "Reception",
+    "Nursery 1",
+    "Nursery 2",
+    "Primary 1",
+    "Primary 2",
+    "Primary 3",
+    "Primary 4",
+    "Primary 5",
+    "Primary 6",
+  ];
+  const secondaryClasses = ["JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"];
+
+  if (this.section === "Primary" && !primaryClasses.includes(this.className)) {
+    next(new Error(`Invalid class name for Primary section: ${this.className}`));
+  } else if (this.section === "Secondary" && !secondaryClasses.includes(this.className)) {
+    next(new Error(`Invalid class name for Secondary section: ${this.className}`));
+  }
+  next();
+});
+
 teacherSchema.index({ teacherId: 1 });
 teacherSchema.index({ "teachingAssignments.section": 1, "teachingAssignments.className": 1 });
 

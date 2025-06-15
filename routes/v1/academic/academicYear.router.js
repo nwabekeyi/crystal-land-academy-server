@@ -16,6 +16,12 @@ const {
   changeCurrentAcademicYearController,
 } = require('../../../controllers/academic/academicYear.controller');
 
+
+
+// Get current academic year
+academicYearRouter.route('/academic-years/current')
+  .get(isLoggedIn, isAdmin, getCurrentAcademicYearController);
+
 // Routes
 academicYearRouter.route('/academic-years')
   .get(isLoggedIn, isAdmin, getAcademicYearsController)
@@ -26,9 +32,6 @@ academicYearRouter.route('/academic-years/:id')
   .patch(isLoggedIn, isAdmin, updateAcademicYearController)
   .delete(isLoggedIn, isAdmin, deleteAcademicYearController);
 
-// Get current academic year
-academicYearRouter.route('/academic-years/current')
-  .get(isLoggedIn, isAdmin, getCurrentAcademicYearController);
 
 // Change current academic year
 academicYearRouter.route('/academic-years/change-current/:id')

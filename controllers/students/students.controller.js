@@ -17,7 +17,9 @@ const {
  **/
 exports.adminRegisterStudentController = async (req, res) => {
   try {
-    await adminRegisterStudentService(req.body, req.userAuth.id, res);
+    const file = req.file || (req.files && req.files[0]); // Support both
+    await adminRegisterStudentService(req.body, file, res);
+    responseStatus(res, 201, "success", req.body);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -56,8 +58,7 @@ exports.getStudentProfileController = async (req, res) => {
  **/
 exports.getAllStudentsByAdminController = async (req, res) => {
   try {
-    const students = await getAllStudentsByAdminService(); // Remove res from service call
-    return responseStatus(res, 200, "success", students); // Send students array directly
+    const students = await getAllStudentsByAdminService(res); // Remove res from service call
   } catch (error) {
     return responseStatus(res, 400, "failed", error.message);
   }

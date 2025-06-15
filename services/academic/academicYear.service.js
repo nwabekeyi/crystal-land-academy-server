@@ -1,110 +1,127 @@
 // services/academicYear.service.js
 const AcademicYear = require("../../models/Academic/academicYear.model");
+const responseStatus = require("../../handlers/responseStatus.handler"); // Adjust path as needed
 
 // Create academic year service
-exports.createAcademicYearService = async (data, userId) => {
-  const { name, fromYear, toYear } = data;
+exports.createAcademicYearService = async (res, data) => {
+  const { name, fromYear, toYear, isCurrent, createdBy } = data;
 
   // Validate inputs
   if (!name || !fromYear || !toYear) {
-    return { status: 400, success: false, message: "Name, fromYear, and toYear are required" };
+    return responseStatus(res, 400, "error", "Name, fromYear, and toYear are required");
   }
 
   // Validate dates
   const fromDate = new Date(fromYear);
   const toDate = new Date(toYear);
   if (isNaN(fromDate) || isNaN(toDate)) {
-    return { status: 400, success: false, message: "Invalid date format for fromYear or toYear" };
+    return responseStatus(res, 400, "error", "Invalid date format for fromYear or toYear");
   }
   if (fromDate >= toDate) {
-    return { status: 400, success: false, message: "fromYear must be before toYear" };
+    return responseStatus(res, 400, "error", "fromYear must be before toYear");
   }
 
   // Check if academic year already exists
   const existingYear = await AcademicYear.findOne({ name });
   if (existingYear) {
-    return { status: 400, success: false, message: "Academic year already exists" };
+    return responseStatus(res, 400, "error", "Academic year already exists");
   }
 
-  // Create academic year
   try {
+    // If isCurrent is true, set any existing current academic year to false
+    if (isCurrent) {
+      await AcademicYear.updateOne(
+        { isCurrent: true },
+        { $set: { isCurrent: false } }
+      );
+    }
+
+    // Create academic year
     const academicYear = await AcademicYear.create({
       name,
       fromYear: fromDate,
       toYear: toDate,
-      createdBy: userId,
-      isCurrent: false, // Default per schema
+      isCurrent: isCurrent || false,
+      createdBy: createdBy,
       students: [],
       teachers: [],
     });
-    return { status: 201, success: true, data: academicYear };
+
+    return responseStatus(res, 201, "success", academicYear);
   } catch (error) {
-    return { status: 500, success: false, message: "Failed to create academic year" };
+    console.error("Error creating academic year:", error);
+    return responseStatus(res, 500, "error", "Failed to create academic year");
   }
 };
 
 // Get all academic years service
-exports.getAcademicYearsService = async () => {
+exports.getAcademicYearsService = async (res) => {
   try {
     const academicYears = await AcademicYear.find().lean();
-    return { status: 200, success: true, data: academicYears };
+    return responseStatus(res, 200, "success", academicYears);
   } catch (error) {
-    return { status: 500, success: false, message: "Failed to fetch academic years" };
+    return responseStatus(res, 500, "error", "Failed to fetch academic years");
   }
 };
 
 // Get current academic year service
-exports.getCurrentAcademicYearService = async () => {
+exports.getCurrentAcademicYearService = async (res) => {
   try {
-    const currentYear = await AcademicYear.findOne({ isCurrent: true }).lean();
+    const currentYear = await AcademicYear.findOne({ isCurrent: true })
+      .populate('createdBy', 'name email') // Optional: Populate createdBy
+      .lean();
     if (!currentYear) {
-      return { status: 404, success: false, message: "No current academic year found" };
+      // Option 1: Keep 404 (current behavior)
+      return responseStatus(res, 404, "error", "No current academic year found");
+      
+      // Option 2: Return 200 with null data (uncomment to use)
+      // return responseStatus(res, 200, "success", null);
     }
-    return { status: 200, success: true, data: currentYear };
+    return responseStatus(res, 200, "success", currentYear);
   } catch (error) {
-    return { status: 500, success: false, message: "Failed to fetch current academic year" };
+    console.error("Error fetching current academic year:", error.stack); // Enhanced logging
+    return responseStatus(res, 500, "error", "Failed to fetch current academic year");
   }
 };
 
 // Get academic year by ID service
-exports.getAcademicYearService = async (id) => {
+exports.getAcademicYearService = async (res, id) => {
   try {
     const academicYear = await AcademicYear.findById(id).lean();
     if (!academicYear) {
-      return { status: 404, success: false, message: "Academic year not found" };
+      return responseStatus(res, 404, "error", "Academic year not found");
     }
-    return { status: 200, success: true, data: academicYear };
+    return responseStatus(res, 200, "success", academicYear);
   } catch (error) {
-    return { status: 500, success: false, message: "Failed to fetch academic year" };
+    return responseStatus(res, 500, "error", "Failed to fetch academic year");
   }
 };
 
 // Update academic year service
-exports.updateAcademicYearService = async (data, academicId, userId) => {
+exports.updateAcademicYearService = async (res, data, academicId, userId) => {
   const { name, fromYear, toYear } = data;
 
   // Validate inputs
   if (!name || !fromYear || !toYear) {
-    return { status: 400, success: false, message: "Name, fromYear, and toYear are required" };
+    return responseStatus(res, 400, "error", "Name, fromYear, and toYear are required");
   }
 
   // Validate dates
   const fromDate = new Date(fromYear);
   const toDate = new Date(toYear);
   if (isNaN(fromDate) || isNaN(toDate)) {
-    return { status: 400, success: false, message: "Invalid date format for fromYear or toYear" };
+    return responseStatus(res, 400, "error", "Invalid date format for fromYear or toYear");
   }
   if (fromDate >= toDate) {
-    return { status: 400, success: false, message: "fromYear must be before toYear" };
+    return responseStatus(res, 400, "error", "fromYear must be before toYear");
   }
 
   // Check if updated name already exists (excluding current ID)
   const existingYear = await AcademicYear.findOne({ name, _id: { $ne: academicId } });
   if (existingYear) {
-    return { status: 400, success: false, message: "Academic year name already exists" };
+    return responseStatus(res, 400, "error", "Academic year name already exists");
   }
 
-  // Update academic year
   try {
     const academicYear = await AcademicYear.findByIdAndUpdate(
       academicId,
@@ -112,21 +129,21 @@ exports.updateAcademicYearService = async (data, academicId, userId) => {
       { new: true, runValidators: true }
     ).lean();
     if (!academicYear) {
-      return { status: 404, success: false, message: "Academic year not found" };
+      return responseStatus(res, 404, "error", "Academic year not found");
     }
-    return { status: 200, success: true, data: academicYear };
+    return responseStatus(res, 200, "success", academicYear);
   } catch (error) {
-    return { status: 500, success: false, message: "Failed to update academic year" };
+    return responseStatus(res, 500, "error", "Failed to update academic year");
   }
 };
 
 // Change current academic year service
-exports.changeCurrentAcademicYearService = async (academicId) => {
+exports.changeCurrentAcademicYearService = async (res, academicId) => {
   try {
     // Verify academic year exists
     const academicYear = await AcademicYear.findById(academicId);
     if (!academicYear) {
-      return { status: 404, success: false, message: "Academic year not found" };
+      return responseStatus(res, 404, "error", "Academic year not found");
     }
 
     // Set all academic years to isCurrent: false
@@ -139,21 +156,21 @@ exports.changeCurrentAcademicYearService = async (academicId) => {
       { new: true, runValidators: true }
     ).lean();
 
-    return { status: 200, success: true, data: updatedYear };
+    return responseStatus(res, 200, "success", updatedYear);
   } catch (error) {
-    return { status: 500, success: false, message: "Failed to change current academic year" };
+    return responseStatus(res, 500, "error", "Failed to change current academic year");
   }
 };
 
 // Delete academic year service
-exports.deleteAcademicYearService = async (id) => {
+exports.deleteAcademicYearService = async (res, id) => {
   try {
     const academicYear = await AcademicYear.findByIdAndDelete(id).lean();
     if (!academicYear) {
-      return { status: 404, success: false, message: "Academic year not found" };
+      return responseStatus(res, 404, "error", "Academic year not found");
     }
-    return { status: 200, success: true, data: academicYear };
+    return responseStatus(res, 200, "success", academicYear);
   } catch (error) {
-    return { status: 500, success: false, message: "Failed to delete academic year" };
+    return responseStatus(res, 500, "error", "Failed to delete academic year");
   }
 };

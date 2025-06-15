@@ -3,7 +3,6 @@ const {
   hashPassword,
   isPassMatched,
 } = require("../../handlers/passHash.handler");
-const Admin = require("../../models/Staff/admin.model");
 const Student = require("../../models/Students/students.model");
 const Exam = require("../../models/Academic/exams.model");
 const Results = require("../../models/Academic/results.model");
@@ -12,6 +11,7 @@ const responseStatus = require("../../handlers/responseStatus.handler");
 const { resultCalculate } = require("../../functions/resultCalculate.function");
 const AcademicYear = require("../../models/Academic/academicYear.model");
 const { createMulter, deleteFromCloudinary } = require("../../middlewares/fileUpload"); // Import Multer config
+const generateStudentId = require("./generateStudentId"); // Adjust path as needed
 
 const upload = createMulter(); // Create Multer instance
 
@@ -24,7 +24,8 @@ const upload = createMulter(); // Create Multer instance
  * @param {Object} res - The Express response object.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.adminRegisterStudentService = async (data, file, adminId, res) => {
+
+exports.adminRegisterStudentService = async (data, file, res) => {
   const {
     firstName,
     lastName,
@@ -36,63 +37,74 @@ exports.adminRegisterStudentService = async (data, file, adminId, res) => {
     formalSchool,
     guardians,
     email,
-    password,
     currentClassLevel,
     boardingStatus,
     boardingDetails,
     prefectName,
   } = data;
 
-  const admin = await Admin.findById(adminId);
-  if (!admin) {
-    return responseStatus(res, 401, "failed", "Unauthorized access!");
-  }
-
+  // 1. Check if student already exists by email
   const studentExists = await Student.findOne({ email });
   if (studentExists) {
     return responseStatus(res, 409, "failed", "Student already enrolled");
   }
 
-  const hashedPassword = await hashPassword(password);
+  // 2. Generate unique studentId
+  let studentId;
+  try {
+    studentId = await generateStudentId(currentClassLevel.section);
+  } catch (error) {
+    return responseStatus(res, 400, "failed", error.message);
+  }
 
-  // Find current academic year
+  // 3. Hash default password
+  const hashedPassword = await hashPassword("123456789");
+
+  // 4. Validate academic year
   const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
   if (!currentAcademicYear) {
     return responseStatus(res, 400, "failed", "No current academic year set.");
   }
 
-  // Validate currentClassLevel
-  if (!currentClassLevel || !currentClassLevel.section || !currentClassLevel.className || !currentClassLevel.subclass) {
+  // 5. Validate class level
+  if (
+    !currentClassLevel?.section ||
+    !currentClassLevel?.className ||
+    !currentClassLevel?.subclass
+  ) {
     return responseStatus(res, 400, "failed", "Invalid class level data");
   }
 
-  // Validate boardingDetails for boarders
-  if (boardingStatus === "Boarder" && (!boardingDetails || !boardingDetails.hall || !boardingDetails.roomNumber)) {
-    return responseStatus(res, 400, "failed", "Boarding details required for boarders");
+  // 6. Validate boarding details if boarder
+  if (boardingStatus === "Boarder") {
+    if (!boardingDetails?.hall || !boardingDetails?.roomNumber) {
+      return responseStatus(res, 400, "failed", "Boarding details (hall and room number) required for boarders");
+    }
   }
 
-  // Handle profile picture upload
+  // 7. Handle profile picture
   let profilePictureUrl = "";
   if (file) {
-    profilePictureUrl = file.path; // Cloudinary secure URL
+    profilePictureUrl = file.path;
   } else {
     return responseStatus(res, 400, "failed", "Profile picture is required");
   }
 
-  // Create new student
+  // 8. Create student in Student collection
   const newStudent = await Student.create({
+    studentId, // Use the generated studentId
     firstName,
     lastName,
     middleName,
     tribe,
     gender,
-    profilePictureUrl,
     religion,
     NIN,
     formalSchool,
     guardians,
     email,
-    password: hashedPassword,
+    password: hashedPassword, // Default hashed password
+    profilePictureUrl,
     currentClassLevel: {
       ...currentClassLevel,
       academicYear: currentAcademicYear._id,
@@ -102,15 +114,12 @@ exports.adminRegisterStudentService = async (data, file, adminId, res) => {
     prefectName,
   });
 
-  // Add student to admin
-  admin.students.push(newStudent._id);
-  await admin.save();
-
-  // Add student to current academic year's student array
+  // 9. Add to academic year
   currentAcademicYear.students.push(newStudent._id);
   await currentAcademicYear.save();
 
-  return responseStatus(res, 201, "success", newStudent);
+  // 10. Return the created student
+  return newStudent;
 };
 
 /**
