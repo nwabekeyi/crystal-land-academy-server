@@ -1,104 +1,142 @@
-// Import necessary models
 const ClassLevel = require("../../models/Academic/class.model");
 const Admin = require("../../models/Staff/admin.model");
-// Import responseStatus handler
 const responseStatus = require("../../handlers/responseStatus.handler");
+
 /**
- * Create class service.
- *
- * @param {Object} data - The data containing information about the class.
- * @param {string} data.name - The name of the class.
- * @param {string} data.description - The description of the class.
- * @param {string} userId - The ID of the user creating the class.
- * @returns {Object} - The response object indicating success or failure.
+ * Create a new ClassLevel.
+ * @param {Object} data - Class data including section, name, description, academicYear, subclasses, etc.
+ * @param {string} userId - The ID of the admin creating the class.
+ * @returns {Object} - Response status.
  */
 exports.createClassLevelService = async (data, userId) => {
-  const { name, description } = data;
-
-  // Check if the class already exists
-  const classFound = await ClassLevel.findOne({ name });
-  if (classFound) {
-    return responseStatus(res, 400, "failed", "Class already exists");
-  }
-
-  // Create the class
-  const classCreated = await ClassLevel.create({
+  const {
+    section,
     name,
     description,
-    createdBy: userId,
-  });
+    academicYear,
+    subclasses = [],
+    subjectsPerTerm = [],
+    teachers = [],
+  } = data;
 
-  // Push the class into the admin's classLevels array
-  const admin = await Admin.findById(userId);
-  admin.classLevels.push(classCreated._id);
-  // Save the changes
-  await admin.save();
+  try {
+    const existing = await ClassLevel.findOne({ section, name, academicYear });
+    if (existing) {
+      return responseStatus(null, 400, "failed", "Class already exists for this academic year");
+    }
 
-  // Send the response
-  return responseStatus(res, 200, "success", classCreated);
-};
-
-/**
- * Get all classes service.
- *
- * @returns {Array} - An array of all classes.
- */
-exports.getAllClassesService = async () => {
-  return await ClassLevel.find();
-};
-
-/**
- * Get a single class by ID service.
- *
- * @param {string} id - The ID of the class.
- * @returns {Object} - The class object.
- */
-exports.getClassLevelsService = async (id) => {
-  return await ClassLevel.findById(id);
-};
-
-/**
- * Update class data service.
- *
- * @param {Object} data - The data containing updated information about the class.
- * @param {string} data.name - The updated name of the class.
- * @param {string} data.description - The updated description of the class.
- * @param {string} id - The ID of the class to be updated.
- * @param {string} userId - The ID of the user updating the class.
- * @returns {Object} - The response object indicating success or failure.
- */
-exports.updateClassLevelService = async (data, id, userId) => {
-  const { name, description } = data;
-
-  // Check if the updated name already exists
-  const classFound = await ClassLevel.findOne({ name });
-  if (classFound) {
-    return responseStatus(res, 400, "failed", "Class already exists");
-  }
-
-  // Update the class
-  const classLevel = await ClassLevel.findByIdAndUpdate(
-    id,
-    {
+    const classLevel = await ClassLevel.create({
+      section,
       name,
       description,
+      academicYear,
       createdBy: userId,
-    },
-    {
-      new: true,
-    }
-  );
+      subclasses,
+      subjectsPerTerm,
+      teachers,
+    });
 
-  // Send the response
-  return responseStatus(res, 200, "success", classLevel);
+    const admin = await Admin.findById(userId);
+    if (admin) {
+      admin.classLevels.push(classLevel._id);
+      await admin.save();
+    }
+
+    return responseStatus(null, 201, "success", classLevel);
+  } catch (error) {
+    console.error("Create ClassLevel Error:", error);
+    return responseStatus(null, 500, "error", "An error occurred while creating the class");
+  }
 };
 
 /**
- * Delete class data service.
- *
- * @param {string} id - The ID of the class to be deleted.
- * @returns {Object} - The deleted class object.
+ * Get all ClassLevels.
+ */
+exports.getAllClassesService = async () => {
+  try {
+    const classes = await ClassLevel.find().populate("createdBy academicYear teachers students");
+    return classes;
+  } catch (error) {
+    console.error("Fetch All Classes Error:", error);
+    return [];
+  }
+};
+
+/**
+ * Get a single ClassLevel by ID.
+ * @param {string} id - ClassLevel ID.
+ */
+exports.getClassLevelsService = async (id) => {
+  try {
+    const classLevel = await ClassLevel.findById(id).populate("createdBy academicYear teachers students");
+    return classLevel;
+  } catch (error) {
+    console.error("Get ClassLevel Error:", error);
+    return null;
+  }
+};
+
+/**
+ * Update a ClassLevel.
+ * @param {Object} data - Class data to update.
+ * @param {string} id - ClassLevel ID.
+ * @param {string} userId - Admin ID performing the update.
+ */
+exports.updateClassLevelService = async (data, id, userId) => {
+  const {
+    section,
+    name,
+    description,
+    academicYear,
+    subclasses,
+    subjectsPerTerm,
+    teachers,
+  } = data;
+
+  try {
+    const classFound = await ClassLevel.findOne({
+      _id: { $ne: id },
+      section,
+      name,
+      academicYear,
+    });
+
+    if (classFound) {
+      return responseStatus(null, 400, "failed", "Another class with same name already exists");
+    }
+
+    const updated = await ClassLevel.findByIdAndUpdate(
+      id,
+      {
+        section,
+        name,
+        description,
+        academicYear,
+        subclasses,
+        subjectsPerTerm,
+        teachers,
+        createdBy: userId,
+      },
+      { new: true }
+    );
+
+    return responseStatus(null, 200, "success", updated);
+  } catch (error) {
+    console.error("Update ClassLevel Error:", error);
+    return responseStatus(null, 500, "error", "An error occurred while updating the class");
+  }
+};
+
+/**
+ * Delete a ClassLevel.
+ * @param {string} id - ClassLevel ID.
  */
 exports.deleteClassLevelService = async (id) => {
-  return await ClassLevel.findByIdAndDelete(id);
+  try {
+    const deleted = await ClassLevel.findByIdAndDelete(id);
+    return deleted;
+  } catch (error) {
+    console.error("Delete ClassLevel Error:", error);
+    return null;
+  }
 };

@@ -1,40 +1,6 @@
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 
-const academicTermSubSchema = new mongoose.Schema({
-  name: {
-    type: String,
-    required: true,
-    enum: ["1st Term", "2nd Term", "3rd Term"],
-  },
-  description: {
-    type: String,
-    required: true,
-  },
-  duration: {
-    type: String,
-    required: true,
-    default: "3 months",
-  },
-  startDate: {
-    type: Date,
-    required: true,
-  },
-  endDate: {
-    type: Date,
-    required: true,
-  },
-  createdBy: {
-    type: ObjectId,
-    ref: "Admin",
-    required: true,
-  },
-  isCurrent: {
-    type: Boolean,
-    default: false,
-  },
-});
-
 const academicYearSchema = new mongoose.Schema(
   {
     name: {
@@ -59,6 +25,12 @@ const academicYearSchema = new mongoose.Schema(
       ref: "Admin",
       required: true,
     },
+    academicTerms: [
+      {
+        type: ObjectId,
+        ref: "AcademicTerm",
+      },
+    ],
     students: [
       {
         type: ObjectId,
@@ -71,7 +43,6 @@ const academicYearSchema = new mongoose.Schema(
         ref: "Teacher",
       },
     ],
-    terms: [academicTermSubSchema],
   },
   { timestamps: true }
 );

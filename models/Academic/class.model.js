@@ -1,6 +1,28 @@
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 
+// Reusable fee schema per term
+const feeSchema = new mongoose.Schema(
+  {
+    termName: {
+      type: String,
+      enum: ["1st Term", "2nd Term", "3rd Term"],
+      required: true,
+    },
+    amount: {
+      type: Number,
+      required: true,
+      min: 0,
+    },
+    description: {
+      type: String,
+      default: "",
+    },
+  },
+  { _id: false }
+);
+
+// Timetable schema per subclass
 const timetableSchema = new mongoose.Schema(
   {
     subject: {
@@ -21,12 +43,12 @@ const timetableSchema = new mongoose.Schema(
     startTime: {
       type: String,
       required: true,
-      match: /^([01]\d|2[0-3]):([0-5]\d)$/, // HH:MM format
+      match: /^([01]\d|2[0-3]):([0-5]\d)$/, // HH:mm format
     },
     endTime: {
       type: String,
       required: true,
-      match: /^([01]\d|2[0-3]):([0-5]\d)$/, // HH:MM format
+      match: /^([01]\d|2[0-3]):([0-5]\d)$/, // HH:mm format
     },
     location: {
       type: String,
@@ -36,18 +58,21 @@ const timetableSchema = new mongoose.Schema(
   { _id: false }
 );
 
+// Subclass schema (e.g., Primary 2A)
 const subclassSchema = new mongoose.Schema(
   {
     letter: {
       type: String,
       required: true,
-      match: /^[A-Z]$/, // Single uppercase letter
+      match: /^[A-Z]$/, // Single capital letter (A, B, etc.)
     },
     timetables: [timetableSchema],
+    feesPerTerm: [feeSchema], // Fees for each term in this subclass
   },
   { _id: false }
 );
 
+// Main ClassLevel schema
 const ClassLevelSchema = new mongoose.Schema(
   {
     section: {
@@ -60,22 +85,9 @@ const ClassLevelSchema = new mongoose.Schema(
       required: true,
       index: true,
       enum: [
-        "Kindergarten",
-        "Reception",
-        "Nursery 1",
-        "Nursery 2",
-        "Primary 1",
-        "Primary 2",
-        "Primary 3",
-        "Primary 4",
-        "Primary 5",
-        "Primary 6",
-        "JSS 1",
-        "JSS 2",
-        "JSS 3",
-        "SS 1",
-        "SS 2",
-        "SS 3",
+        "Kindergarten", "Reception", "Nursery 1", "Nursery 2", "Primary 1",
+        "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
+        "JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3",
       ],
     },
     subclasses: [subclassSchema],
@@ -131,44 +143,48 @@ const ClassLevelSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Pre-validation middleware
+// Pre-validation middleware to ensure consistency
 ClassLevelSchema.pre("validate", function (next) {
-  const primaryClasses = [
-    "Kindergarten",
-    "Reception",
-    "Nursery 1",
-    "Nursery 2",
-    "Primary 1",
-    "Primary 2",
-    "Primary 3",
-    "Primary 4",
-    "Primary 5",
-    "Primary 6",
+  const primary = [
+    "Kindergarten", "Reception", "Nursery 1", "Nursery 2",
+    "Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
   ];
-  const secondaryClasses = ["JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"];
+  const secondary = ["JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"];
 
-  if (this.section === "Primary" && !primaryClasses.includes(this.name)) {
-    return next(new Error(`Invalid class name for Primary section: ${this.name}`));
-  } else if (this.section === "Secondary" && !secondaryClasses.includes(this.name)) {
-    return next(new Error(`Invalid class name for Secondary section: ${this.name}`));
+  if (this.section === "Primary" && !primary.includes(this.name)) {
+    return next(new Error(`Invalid class name for Primary: ${this.name}`));
+  }
+  if (this.section === "Secondary" && !secondary.includes(this.name)) {
+    return next(new Error(`Invalid class name for Secondary: ${this.name}`));
   }
 
-  // Ensure subclass letters are unique
+  // Ensure unique subclass letters (A, B, C...)
   const subclassLetters = this.subclasses.map((sub) => sub.letter);
   if (new Set(subclassLetters).size !== subclassLetters.length) {
     return next(new Error("Subclass letters must be unique"));
   }
 
-  // Validate timetable time range
+  // Validate timetable times and fees
   for (const subclass of this.subclasses) {
-    if (subclass.timetables && Array.isArray(subclass.timetables)) {
-      for (const timetable of subclass.timetables) {
-        const start = parseInt(timetable.startTime.replace(":", ""));
-        const end = parseInt(timetable.endTime.replace(":", ""));
+    if (Array.isArray(subclass.timetables)) {
+      for (const tt of subclass.timetables) {
+        const start = parseInt(tt.startTime.replace(":", ""));
+        const end = parseInt(tt.endTime.replace(":", ""));
         if (start >= end) {
-          return next(
-            new Error(`End time must be after start time for subclass ${subclass.letter}`)
-          );
+          return next(new Error(`End time must be after start time for subclass ${subclass.letter}`));
+        }
+      }
+    }
+
+    if (Array.isArray(subclass.feesPerTerm)) {
+      const seenTerms = new Set();
+      for (const fee of subclass.feesPerTerm) {
+        if (seenTerms.has(fee.termName)) {
+          return next(new Error(`Duplicate fee term in subclass ${subclass.letter}`));
+        }
+        seenTerms.add(fee.termName);
+        if (fee.amount < 0) {
+          return next(new Error(`Fee amount must be non-negative in subclass ${subclass.letter}`));
         }
       }
     }
@@ -178,5 +194,4 @@ ClassLevelSchema.pre("validate", function (next) {
 });
 
 const ClassLevel = mongoose.model("ClassLevel", ClassLevelSchema);
-
 module.exports = ClassLevel;

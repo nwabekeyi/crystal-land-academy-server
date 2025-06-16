@@ -37,11 +37,6 @@ const teachingAssignmentSchema = new mongoose.Schema(
         match: /^[A-Z]$/, // Single uppercase letter
       },
     ],
-    academicYear: {
-      type: ObjectId,
-      ref: "AcademicYear",
-      required: true,
-    },
   },
   { _id: false }
 );
