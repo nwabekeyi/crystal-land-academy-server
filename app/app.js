@@ -28,6 +28,8 @@ app.use(cors({
 routeSync(app, "staff");
 routeSync(app, "academic");
 routeSync(app, "students");
+routeSync(app, 'enquiry'); 
+
 
 // Serve static files from the frontend build
 app.use(express.static(path.join(__dirname, "../public/dist")));
