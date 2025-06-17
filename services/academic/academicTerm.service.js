@@ -3,22 +3,21 @@ const AcademicYear = require("../../models/Academic/academicYear.model");
 const Admin = require("../../models/Staff/admin.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
+// Helper function to check if two date ranges intersect
+const doDateRangesIntersect = (start1, end1, start2, end2) => {
+  return start1 <= end2 && start2 <= end1;
+};
+
 /**
  * Create academic term service.
  *
  * @param {Object} data - The data containing information about the academic term.
- * @param {string} data.name - The name of the academic term.
- * @param {string} data.description - The description of the academic term.
- * @param {string} data.duration - The duration of the academic term.
- * @param {Date} data.startDate - The start date of the academic term.
- * @param {Date} data.endDate - The end date of the academic term.
  * @param {Object[]} data.terms - Array of term objects (1st, 2nd, 3rd Term).
  * @param {string} data.terms[].name - Name of the term (1st Term, 2nd Term, 3rd Term).
  * @param {string} data.terms[].description - Description of the term.
  * @param {string} data.terms[].duration - Duration of the term.
  * @param {Date} data.terms[].startDate - Start date of the term.
  * @param {Date} data.terms[].endDate - End date of the term.
- * @param {string} data.terms[].createdBy - ID of the admin creating the term.
  * @param {boolean} data.terms[].isCurrent - Whether the term is current.
  * @param {string} data.academicYearId - The ID of the academic year.
  * @param {string} userId - The ID of the user creating the academic term.
@@ -26,18 +25,12 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  * @returns {Object} - The response object indicating success or failure.
  */
 exports.createAcademicTermService = async (data, userId, res) => {
-  const { name, description, duration, startDate, endDate, terms, academicYearId } = data;
+  const { terms, academicYearId } = data;
 
   // Validate academicYearId
   const academicYear = await AcademicYear.findById(academicYearId);
   if (!academicYear) {
     return responseStatus(res, 404, "failed", "Academic Year not found");
-  }
-
-  // Check if the academic term already exists for this academic year
-  const academicTerm = await AcademicTerm.findOne({ name, academicYear: academicYearId });
-  if (academicTerm) {
-    return responseStatus(res, 402, "failed", "Academic term already exists for this Academic Year");
   }
 
   // Validate terms array
@@ -47,34 +40,67 @@ exports.createAcademicTermService = async (data, userId, res) => {
 
   // Validate term fields
   for (const term of terms) {
-    if (!term.description || !term.startDate || !term.endDate || !term.createdBy) {
-      return responseStatus(res, 400, "failed", "All term fields (description, startDate, endDate, createdBy) are required");
+    if (!term.description || !term.duration || !term.startDate || !term.endDate) {
+      return responseStatus(res, 400, "failed", "All term fields (description, duration, startDate, endDate) are required");
+    }
+    if (new Date(term.startDate) >= new Date(term.endDate)) {
+      return responseStatus(res, 400, "failed", `Term ${term.name} start date must be before end date`);
+    }
+  }
+
+
+  // Validate no date intersection within terms
+  for (let i = 0; i < terms.length; i++) {
+    for (let j = i + 1; j < terms.length; j++) {
+      if (
+        doDateRangesIntersect(
+          new Date(terms[i].startDate),
+          new Date(terms[i].endDate),
+          new Date(terms[j].startDate),
+          new Date(terms[j].endDate)
+        )
+      ) {
+        return responseStatus(res, 400, "failed", `Terms ${terms[i].name} and ${terms[j].name} have overlapping dates`);
+      }
+    }
+  }
+
+  // Validate against existing terms in the same academic year
+  const existingTerms = await AcademicTerm.find({ academicYear: academicYearId });
+  for (const existing of existingTerms) {
+    for (const existingTerm of existing.terms) {
+      for (const newTerm of terms) {
+        if (existingTerm.name === newTerm.name) {
+          return responseStatus(res, 400, "failed", `Term name ${newTerm.name} already exists in this academic year`);
+        }
+        if (existingTerm.duration === newTerm.duration) {
+          return responseStatus(res, 400, "failed", `Term duration ${newTerm.duration} already exists in this academic year`);
+        }
+        if (
+          doDateRangesIntersect(
+            new Date(existingTerm.startDate),
+            new Date(existingTerm.endDate),
+            new Date(newTerm.startDate),
+            new Date(newTerm.endDate)
+          )
+        ) {
+          return responseStatus(res, 400, "failed", `New term ${newTerm.name} overlaps with existing term ${existingTerm.name}`);
+        }
+      }
     }
   }
 
   // Create the academic term
   const academicTermCreated = await AcademicTerm.create({
-    name,
-    description,
-    duration,
-    startDate,
-    endDate,
-    terms,
-    createdBy: userId,
     academicYear: academicYearId,
+    terms: terms.map((term) => ({
+      ...term,
+      createdBy: userId,
+    })),
   });
-
-  // Push the academic term into the admin's academicTerms array
-  const admin = await Admin.findById(userId);
-  if (!admin) {
-    return responseStatus(res, 404, "failed", "Admin not found");
-  }
-  admin.academicTerms.push(academicTermCreated._id);
-  await admin.save();
 
   // The pre-save hook in AcademicTerm schema adds the term to AcademicYear.academicTerms
 
-  // Send the response
   return responseStatus(res, 200, "success", academicTermCreated);
 };
 
@@ -116,12 +142,13 @@ exports.getAcademicTermService = async (id, res) => {
  * Update academic term service.
  *
  * @param {Object} data - The data containing updated information about the academic term.
- * @param {string} data.name - The updated name of the academic term.
- * @param {string} data.description - The updated description of the academic term.
- * @param {string} data.duration - The updated duration of the academic term.
- * @param {Date} data.startDate - The updated start date.
- * @param {Date} data.endDate - The updated end date.
  * @param {Object[]} data.terms - Updated array of term objects.
+ * @param {string} data.terms[].name - Name of the term (1st Term, 2nd Term, 3rd Term).
+ * @param {string} data.terms[].description - Description of the term.
+ * @param {string} data.terms[].duration - Duration of the term.
+ * @param {Date} data.terms[].startDate - Start date of the term.
+ * @param {Date} data.terms[].endDate - End date of the term.
+ * @param {boolean} data.terms[].isCurrent - Whether the term is current.
  * @param {string} data.academicYearId - The updated Academic Year ID.
  * @param {string} academicId - The ID of the academic term to be updated.
  * @param {string} userId - The ID of the user updating the academic term.
@@ -129,7 +156,7 @@ exports.getAcademicTermService = async (id, res) => {
  * @returns {Object} - The response object indicating success or failure.
  */
 exports.updateAcademicTermService = async (data, academicId, userId, res) => {
-  const { name, description, duration, startDate, endDate, terms, academicYearId } = data;
+  const { terms, academicYearId } = data;
 
   // Validate academicYearId if provided
   if (academicYearId) {
@@ -145,40 +172,76 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
     return responseStatus(res, 404, "failed", "Academic Term not found");
   }
 
-  // Check if the updated name already exists for the same academic year
-  const existingTerm = await AcademicTerm.findOne({
-    name,
-    academicYear: academicYearId || academicTerm.academicYear,
-    _id: { $ne: academicId },
-  });
-  if (existingTerm) {
-    return responseStatus(res, 402, "failed", "Academic term already exists for this Academic Year");
-  }
-
   // Validate terms array if provided
-  if (terms && (terms.length !== 3 || !terms.every((term) => ["1st Term", "2nd Term", "3rd Term"].includes(term.name)))) {
-    return responseStatus(res, 400, "failed", "Exactly three terms (1st Term, 2nd Term, 3rd Term) are required");
-  }
-
-  // Validate term fields if provided
   if (terms) {
+    if (terms.length !== 3 || !terms.every((term) => ["1st Term", "2nd Term", "3rd Term"].includes(term.name))) {
+      return responseStatus(res, 400, "failed", "Exactly three terms (1st Term, 2nd Term, 3rd Term) are required");
+    }
+
+    // Validate term fields
     for (const term of terms) {
-      if (!term.description || !term.startDate || !term.endDate || !term.createdBy) {
-        return responseStatus(res, 400, "failed", "All term fields (description, startDate, endDate, createdBy) are required");
+      if (!term.description || !term.duration || !term.startDate || !term.endDate) {
+        return responseStatus(res, 400, "failed", "All term fields (description, duration, startDate, endDate) are required");
+      }
+      if (new Date(term.startDate) >= new Date(term.endDate)) {
+        return responseStatus(res, 400, "failed", `Term ${term.name} start date must be before end date`);
+      }
+    }
+
+    // Validate unique durations within terms
+    const durations = terms.map((term) => term.duration);
+    if (new Set(durations).size !== durations.length) {
+      return responseStatus(res, 400, "failed", "All terms must have unique durations");
+    }
+
+    // Validate no date intersection within terms
+    for (let i = 0; i < terms.length; i++) {
+      for (let j = i + 1; j < terms.length; j++) {
+        if (
+          doDateRangesIntersect(
+            new Date(terms[i].startDate),
+            new Date(terms[i].endDate),
+            new Date(terms[j].startDate),
+            new Date(terms[j].endDate)
+          )
+        ) {
+          return responseStatus(res, 400, "failed", `Terms ${terms[i].name} and ${terms[j].name} have overlapping dates`);
+        }
+      }
+    }
+
+    // Validate against existing terms in the same academic year (excluding current academic term)
+    const existingTerms = await AcademicTerm.find({
+      academicYear: academicYearId || academicTerm.academicYear,
+      _id: { $ne: academicId },
+    });
+    for (const existing of existingTerms) {
+      for (const existingTerm of existing.terms) {
+        for (const newTerm of terms) {
+          if (existingTerm.name === newTerm.name) {
+            return responseStatus(res, 400, "failed", `Term name ${newTerm.name} already exists in this academic year`);
+          }
+          if (existingTerm.duration === newTerm.duration) {
+            return responseStatus(res, 400, "failed", `Term duration ${newTerm.duration} already exists in this academic year`);
+          }
+          if (
+            doDateRangesIntersect(
+              new Date(existingTerm.startDate),
+              new Date(existingTerm.endDate),
+              new Date(newTerm.startDate),
+              new Date(newTerm.endDate)
+            )
+          ) {
+            return responseStatus(res, 400, "failed", `New term ${newTerm.name} overlaps with existing term ${existingTerm.name}`);
+          }
+        }
       }
     }
   }
 
   // Prepare update object
-  const updateData = {
-    name,
-    description,
-    duration,
-    startDate,
-    endDate,
-    createdBy: userId,
-  };
-  if (terms) updateData.terms = terms;
+  const updateData = {};
+  if (terms) updateData.terms = terms.map((term) => ({ ...term, createdBy: userId }));
   if (academicYearId) updateData.academicYear = academicYearId;
 
   // Update the academic term
@@ -186,19 +249,16 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
 
   // If academicYearId is updated, update the AcademicYear references
   if (academicYearId && academicTerm.academicYear.toString() !== academicYearId) {
-    // Remove from old AcademicYear
     await AcademicYear.updateOne(
       { academicTerms: academicId },
       { $pull: { academicTerms: academicId } }
     );
-    // Add to new AcademicYear
     await AcademicYear.updateOne(
       { _id: academicYearId },
       { $addToSet: { academicTerms: academicId } }
     );
   }
 
-  // Send the response
   return responseStatus(res, 201, "success", updatedAcademicTerm);
 };
 

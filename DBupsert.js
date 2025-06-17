@@ -1,124 +1,75 @@
 const mongoose = require("mongoose");
 const dotenv = require("dotenv");
-const Teacher = require("./models/Staff/teachers.model");
-const { hashPassword } = require("./handlers/passHash.handler"); // Import hashPassword
+const ClassLevel = require("./models/Academic/class.model");
 
 dotenv.config();
 
-const MONGO_URI = process.env.DB;
+const MONGO_URI = process.env.DB || "mongodb://localhost:27017/your_database_name";
 
-// Sample teacher data conforming to the updated schema
-const sampleTeachers = [
-  {
-    firstName: "Mary",
-    lastName: "Johnson",
-    middleName: "B",
-    email: "mary.johnson@example.com",
-    password: "hashedPassword123", // Will be hashed in the script
-    gender: "Female",
-    NIN: "12345678901",
-    address: "789 Oak St",
-    qualification: "BSc",
-    phoneNumber: "2345678901",
-    tribe: "Igbo",
-    religion: "Christianity",
-    bankAccountDetails: {
-      accountName: "Mary Johnson",
-      accountNumber: "1234567890",
-      bank: "First Bank",
-    },
-    subject: "60d21b4667d0d8992e610c85", // Sample Subject ObjectId
-    teachingAssignments: [
-      {
-        section: "Secondary",
-        className: "JSS1",
-        subclasses: ["A", "B"],
-        academicYear: "60d21b4667d0d8992e610c86", // Sample AcademicYear ObjectId
-      },
-      {
-        section: "Secondary",
-        className: "SS2",
-        subclasses: ["A"],
-        academicYear: "60d21b4667d0d8992e610c86",
-      },
-    ],
-    profilePictureUrl: "https://example.com/mary.jpg",
-    linkedInProfile: "https://linkedin.com/in/maryjohnson",
-    role: "teacher",
-    applicationStatus: "approved",
-    isWithdrawn: false,
-    isSuspended: false,
-    createdBy: "60d21b4667d0d8992e610c87", // Sample Admin ObjectId
-    examsCreated: [],
-  },
-  {
-    firstName: "James",
-    lastName: "Brown",
-    email: "james.brown@example.com",
-    password: "hashedPassword456",
-    gender: "Male",
-    NIN: "98765432109",
-    address: "456 Pine St",
-    qualification: "MSc",
-    phoneNumber: "0987654321",
-    tribe: "Hausa",
-    religion: "Islam",
-    bankAccountDetails: {
-      accountName: "James Brown",
-      accountNumber: "0987654321",
-      bank: "Zenith Bank",
-    },
-    subject: "60d21b4667d0d8992e610c88",
-    teachingAssignments: [
-      {
-        section: "Primary",
-        className: "Primary 1",
-        subclasses: ["A", "B"],
-        academicYear: "60d21b4667d0d8992e610c86",
-      },
-    ],
-    profilePictureUrl: "https://example.com/james.jpg",
-    role: "teacher",
-    applicationStatus: "approved",
-    isWithdrawn: false,
-    isSuspended: false,
-    createdBy: "60d21b4667d0d8992e610c87",
-    examsCreated: [],
-  },
+// Define all class names from the enum
+const classNames = [
+  "Kindergarten", "Reception", "Nursery 1", "Nursery 2", "Primary 1",
+  "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
+  "JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3",
 ];
 
-const runMigration = async () => {
+// Map class names to sections
+const getSection = (name) => {
+  const primaryClasses = [
+    "Kindergarten", "Reception", "Nursery 1", "Nursery 2",
+    "Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
+  ];
+  return primaryClasses.includes(name) ? "Primary" : "Secondary";
+};
+
+// Generate dummy data for all classes
+const dummyClasses = classNames.map((name) => ({
+  section: getSection(name),
+  name,
+  subclasses: [
+    { letter: "A" }, // At least one subclass
+    ...(name.includes("Primary") ? [{ letter: "B" }] : []), // Add subclass B for Primary classes
+  ],
+  description: `${name} class for the 2024/2025 academic year`,
+  createdBy: new mongoose.Types.ObjectId("683e85cfde50e9f334665a24"), // Provided Admin ID
+  academicYear: new mongoose.Types.ObjectId("685180f8ad949e40eee0816d"), // Provided AcademicYear ID
+  students: [],
+  subjectsPerTerm: [
+    { termName: "1st Term", subjects: [] },
+    { termName: "2nd Term", subjects: [] },
+    { termName: "3rd Term", subjects: [] },
+  ],
+  teachers: [],
+}));
+
+// Migration function
+async function runMigration() {
   try {
+    // Connect to MongoDB
     await mongoose.connect(MONGO_URI, {
       useNewUrlParser: true,
       useUnifiedTopology: true,
     });
     console.log("Connected to MongoDB");
 
+    // Clear existing ClassLevel data (optional, comment out to keep existing data)
+    await ClassLevel.deleteMany({});
+    console.log("Cleared existing ClassLevel data");
 
+    // Insert dummy classes
+    const result = await ClassLevel.insertMany(dummyClasses, { ordered: false });
+    console.log(`Inserted ${result.length} classes successfully`);
 
-    // Hash passwords for sample teachers
-    const hashedTeachers = await Promise.all(
-      sampleTeachers.map(async (teacher) => ({
-        ...teacher,
-        password: await hashPassword(teacher.password),
-      }))
-    );
-
-    // Delete all existing teacher documents
-    const deleteResult = await Teacher.deleteMany({});
-    console.log(`Deleted ${deleteResult.deletedCount} teacher documents.`);
-
-    // Insert new teacher documents
-    const insertResult = await Teacher.insertMany(hashedTeachers);
-    console.log(`Inserted ${insertResult.length} new teacher documents.`);
-
+    // Disconnect from MongoDB
     await mongoose.disconnect();
-    console.log("Migration completed successfully.");
+    console.log("Disconnected from MongoDB");
+    process.exit(0);
   } catch (error) {
-    console.error("Migration error:", error);
+    console.error("Migration failed:", error.message);
     await mongoose.disconnect();
+    process.exit(1);
   }
-};
+}
 
+// Run the migration
 runMigration();
