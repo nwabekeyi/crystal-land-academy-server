@@ -1,6 +1,6 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
 const {
-  createTeacherService,
+  adminRegisterTeacherService,
   teacherLoginService,
   getAllTeachersService,
   getTeacherProfileService,
@@ -15,7 +15,8 @@ const {
  **/
 exports.createTeacherController = async (req, res) => {
   try {
-    await createTeacherService(req.body, req.userAuth.id, res);
+    // Pass req.body, req.file (for profile picture), and admin ID from authenticated user
+    await adminRegisterTeacherService(req.body, req.file, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -41,8 +42,7 @@ exports.teacherLoginController = async (req, res) => {
  **/
 exports.getAllTeachersController = async (req, res) => {
   try {
-    const result = await getAllTeachersService();
-    responseStatus(res, 200, "success", result);
+    await getAllTeachersService(res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -50,13 +50,12 @@ exports.getAllTeachersController = async (req, res) => {
 
 /**
  * @desc Get teacher profile
- * @route GET /api/v1/teacher/profile
+ * @route GET /api/v1/teacher/profile/:teacherId
  * @access Private (teacher)
  **/
 exports.getTeacherProfileController = async (req, res) => {
   try {
-    const result = await getTeacherProfileService(req.params.teacherId);
-    responseStatus(res, 200, "success", result);
+    await getTeacherProfileService(req.params.teacherId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -69,12 +68,8 @@ exports.getTeacherProfileController = async (req, res) => {
  **/
 exports.updateTeacherProfileController = async (req, res) => {
   try {
-    const result = await updateTeacherProfileService(
-      req.body,
-      req.userAuth.id,
-      res
-    );
-    responseStatus(res, 200, "success", result);
+    // Pass req.body, req.file (for profile picture), and teacher ID from authenticated user
+    await updateTeacherProfileService(req.body, req.file, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -82,16 +77,13 @@ exports.updateTeacherProfileController = async (req, res) => {
 
 /**
  * @desc Admin update teacher profile
- * @route PATCH /api/v1/teacher/:teachersId/update-profile
+ * @route PATCH /api/v1/teacher/:teacherId/update-profile
  * @access Private (Admin)
  **/
 exports.adminUpdateTeacherProfileController = async (req, res) => {
   try {
-    const result = await adminUpdateTeacherProfileService(
-      req.body,
-      req.params.teachersId
-    );
-    responseStatus(res, 200, "success", result);
+    // Pass req.body, req.file (for profile picture), and teacher ID from route params
+    await adminUpdateTeacherProfileService(req.body, req.file, req.params.teacherId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

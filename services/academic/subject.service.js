@@ -9,16 +9,14 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  * @param {string} data.name - The name of the Subject.
  * @param {string} data.description - The description of the Subject.
  * @param {string} data.academicYear - The ID of the AcademicYear associated with the Subject.
- * @param {string} data.academicTermName - The name of the term (1st Term, 2nd Term, or 3rd Term).
  * @param {string} [data.teacher] - The ID of the Teacher assigned to the Subject (optional).
- * @param {string} [data.duration] - The duration of the Subject (defaults to "3 months").
  * @param {string} programId - The ID of the Program the Subject is associated with.
  * @param {string} userId - The ID of the user creating the Subject.
  * @param {Object} res - The response object (for responseStatus).
  * @returns {Object} - The response object indicating success or failure.
  */
 exports.createSubjectService = async (data, programId, userId, res) => {
-  const { name, description, academicYear, academicTermName, teacher, duration } = data;
+  const { name, description, academicYear, teacher } = data;
 
   // Find the program
   const programFound = await Program.findById(programId);
@@ -26,10 +24,10 @@ exports.createSubjectService = async (data, programId, userId, res) => {
     return responseStatus(res, 404, "failed", "Program not found");
   }
 
-  // Check if the Subject already exists for the same AcademicYear and term
-  const subjectFound = await Subject.findOne({ name, academicYear, academicTermName });
+  // Check if the Subject already exists for the same AcademicYear
+  const subjectFound = await Subject.findOne({ name, academicYear });
   if (subjectFound) {
-    return responseStatus(res, 402, "failed", "Subject already exists for this Academic Year and Term");
+    return responseStatus(res, 409, "failed", "Subject already exists for this Academic Year");
   }
 
   // Create the Subject
@@ -38,9 +36,7 @@ exports.createSubjectService = async (data, programId, userId, res) => {
       name,
       description,
       academicYear,
-      academicTermName,
-      teacher: teacher || undefined,
-      duration: duration || "3 months",
+      teacher: teacher || null,
       createdBy: userId,
     });
 
@@ -54,7 +50,7 @@ exports.createSubjectService = async (data, programId, userId, res) => {
     );
 
     // Send the response
-    return responseStatus(res, 200, "success", populatedSubject);
+    return responseStatus(res, 201, "success", populatedSubject);
   } catch (error) {
     return responseStatus(res, 500, "failed", "Error creating subject: " + error.message);
   }
@@ -101,16 +97,14 @@ exports.getSubjectsService = async (id, res) => {
  * @param {string} data.name - The updated name of the Subject.
  * @param {string} data.description - The updated description of the Subject.
  * @param {string} data.academicYear - The updated ID of the AcademicYear.
- * @param {string} data.academicTermName - The updated name of the term.
  * @param {string} [data.teacher] - The updated ID of the Teacher (optional).
- * @param {string} [data.duration] - The updated duration of the Subject.
  * @param {string} id - The ID of the Subject to be updated.
  * @param {string} userId - The ID of the user updating the Subject.
  * @param {Object} res - The response object (for responseStatus).
  * @returns {Object} - The response object indicating success or failure.
  */
 exports.updateSubjectService = async (data, id, userId, res) => {
-  const { name, description, academicYear, academicTermName, teacher, duration } = data;
+  const { name, description, academicYear, teacher } = data;
 
   // Check if the Subject exists
   const subject = await Subject.findById(id);
@@ -118,15 +112,14 @@ exports.updateSubjectService = async (data, id, userId, res) => {
     return responseStatus(res, 404, "failed", "Subject not found");
   }
 
-  // Check if the updated name already exists for the same AcademicYear and term
+  // Check if the updated name already exists for the same AcademicYear
   const subjectFound = await Subject.findOne({
     name,
     academicYear: academicYear || subject.academicYear,
-    academicTermName: academicTermName || subject.academicTermName,
     _id: { $ne: id },
   });
   if (subjectFound) {
-    return responseStatus(res, 402, "failed", "Subject already exists for this Academic Year and Term");
+    return responseStatus(res, 409, "failed", "Subject already exists for this Academic Year");
   }
 
   // Update the Subject
@@ -137,9 +130,7 @@ exports.updateSubjectService = async (data, id, userId, res) => {
         name,
         description,
         academicYear: academicYear || subject.academicYear,
-        academicTermName: academicTermName || subject.academicTermName,
-        teacher: teacher || subject.teacher,
-        duration: duration || subject.duration,
+        teacher: teacher !== undefined ? teacher : subject.teacher,
         createdBy: userId,
       },
       { new: true }

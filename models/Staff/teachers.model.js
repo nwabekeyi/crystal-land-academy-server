@@ -34,7 +34,6 @@ const teachingAssignmentSchema = new mongoose.Schema(
       {
         type: String,
         required: true,
-        match: /^[A-Z]$/, // Single uppercase letter
       },
     ],
   },
