@@ -87,7 +87,7 @@ exports.getAllClassesService = async (res) => {
     const classes = await ClassLevel.find().populate(
       "createdBy academicYear teachers students subclasses.subjects"
     );
-    return responseStatus(res, 200, "success", classes);
+    return classes
   } catch (error) {
     console.error("Fetch All Classes Error:", error);
     return responseStatus(res, 500, "error", "An error occurred while fetching classes");
