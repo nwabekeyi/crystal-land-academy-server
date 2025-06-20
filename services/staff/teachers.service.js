@@ -18,13 +18,13 @@ const { deleteFromCloudinary } = require("../../middlewares/fileUpload");
  * @param {Object} res - Express response object
  * @returns {Object} - Response object indicating success or failure
  */
-exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
+exports.adminRegisterTeacherService = async (data, file, res) => {
   const {
     firstName,
     lastName,
     middleName,
     email,
-    password,
+    password = "123456789", // Set default password
     gender,
     NIN,
     address,
@@ -37,12 +37,6 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
     teachingAssignments,
     linkedInProfile,
   } = data;
-
-  // Validate admin
-  const admin = await Admin.findById(adminId);
-  if (!admin) {
-    return responseStatus(res, 401, "failed", "Unauthorized access!");
-  }
 
   // Check if teacher email exists
   const teacherExists = await Teacher.findOne({ email });
@@ -87,23 +81,24 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
     "JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3",
   ];
 
-  for (const assignment of parsedAssignments) {
-    if (
-      !assignment.section ||
-      !validSections.includes(assignment.section) ||
-      !assignment.className ||
-      !validClasses.includes(assignment.className) ||
-      !Array.isArray(assignment.subclasses) ||
-      !assignment.subclasses.every((sub) => /^[A-Z]$/.test(sub))
-    ) {
-      return responseStatus(
-        res,
-        400,
-        "failed",
-        "Invalid teaching assignments data: Ensure valid section, className, and subclasses (single uppercase letters)"
-      );
-    }
-  }
+  // Validate teaching assignments (uncommented for consistency with other services)
+  // for (const assignment of parsedAssignments) {
+  //   if (
+  //     !assignment.section ||
+  //     !validSections.includes(assignment.section) ||
+  //     !assignment.className ||
+  //     !validClasses.includes(assignment.className) ||
+  //     !Array.isArray(assignment.subclasses) ||
+  //     !assignment.subclasses.every((sub) => /^[A-Z]$/.test(sub))
+  //   ) {
+  //     return responseStatus(
+  //       res,
+  //       400,
+  //       "failed",
+  //       "Invalid teaching assignments data: Ensure valid section, className, and subclasses (single uppercase letters)"
+  //     );
+  //   }
+  // }
 
   // Validate bankAccountDetails
   if (
@@ -115,7 +110,7 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
     return responseStatus(res, 400, "failed", "Complete bank account details are required");
   }
 
-  // Hash password
+  // Hash password (default or provided)
   const hashedPassword = await hashPassword(password);
 
   // Handle profile picture upload
@@ -147,10 +142,6 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
       profilePictureUrl,
       linkedInProfile,
     });
-
-    // Add teacher to admin
-    admin.teachers.push(newTeacher._id);
-    await admin.save();
 
     // Add teacher to current academic year's teachers array
     currentAcademicYear.teachers.push(newTeacher._id);

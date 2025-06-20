@@ -9,6 +9,7 @@ const generateToken = require("../../utils/tokenGenerator");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const { resultCalculate } = require("../../functions/resultCalculate.function");
 const AcademicYear = require("../../models/Academic/academicYear.model");
+const ClassLevel = require("../../models/Academic/class.model");
 const { deleteFromCloudinary } = require("../../middlewares/fileUpload");
 const generateStudentId = require("./generateStudentId"); // Adjust path as needed
 
@@ -16,95 +17,12 @@ const generateStudentId = require("./generateStudentId"); // Adjust path as need
  * Admin registration service for creating a new student.
  * @param {Object} data - The data containing information about the new student.
  * @param {Object} file - The uploaded profile picture file (from Multer).
- * @param {string} adminId - The ID of the admin creating the student.
  * @param {Object} res - The Express response object.
- * @returns {Object} - The response object indicating success or failure.
+ * @returns {void} - Sends HTTP response via responseStatus.
  */
-exports.adminRegisterStudentService = async (data, file, adminId, res) => {
-  const {
-    firstName,
-    lastName,
-    middleName,
-    tribe,
-    gender,
-    religion,
-    NIN,
-    formalSchool,
-    guardians,
-    email,
-    currentClassLevel,
-    boardingStatus,
-    boardingDetails,
-    prefectName,
-  } = data;
-
-  // 1. Check if student already exists by email or NIN
-  const studentExists = await Student.findOne({ $or: [{ email }, { NIN: NIN || null }] });
-  if (studentExists) {
-    return responseStatus(res, 409, "failed", "Student already enrolled");
-  }
-
-  // 2. Generate unique studentId
-  let studentId;
+exports.adminRegisterStudentService = async (data, file, res) => {
   try {
-    studentId = await generateStudentId(currentClassLevel?.section);
-  } catch (error) {
-    return responseStatus(res, 400, "failed", error.message);
-  }
-
-  // 3. Hash default password
-  const hashedPassword = await hashPassword("123456789");
-
-  // 4. Validate academic year
-  const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
-  if (!currentAcademicYear) {
-    return responseStatus(res, 400, "failed", "No current academic year set");
-  }
-
-  // 5. Validate guardians
-  if (!guardians || !Array.isArray(guardians) || !guardians.length) {
-    return responseStatus(res, 400, "failed", "At least one guardian is required");
-  }
-  for (const guardian of guardians) {
-    if (!guardian.name || !guardian.relationship || !guardian.phone) {
-      return responseStatus(res, 400, "failed", "Guardian must include name, relationship, and phone");
-    }
-  }
-
-  // 6. Validate currentClassLevel
-  if (
-    !currentClassLevel?.section ||
-    !currentClassLevel?.className ||
-    !currentClassLevel?.subclass ||
-    !/^[A-Z]$/.test(currentClassLevel.subclass)
-  ) {
-    return responseStatus(res, 400, "failed", "Invalid class level data: section, className, and valid subclass required");
-  }
-
-  // 7. Validate boarding details
-  if (boardingStatus === "Boarder") {
-    if (!boardingDetails?.hall || !boardingDetails?.roomNumber) {
-      return responseStatus(res, 400, "failed", "Boarding details (hall and room number) required for boarders");
-    }
-  } else if (boardingStatus === "Day Student") {
-    // Ensure boardingDetails is not provided for Day Students (schema pre-validate will clear it)
-    if (boardingDetails) {
-      return responseStatus(res, 400, "failed", "Boarding details should not be provided for Day Students");
-    }
-  }
-
-  // 8. Handle profile picture
-  let profilePictureUrl = "";
-  if (file) {
-    profilePictureUrl = file.path; // Cloudinary secure URL
-  } else {
-    return responseStatus(res, 400, "failed", "Profile picture is required");
-  }
-
-  // 9. Create student
-  try {
-    const newStudent = await Student.create({
-      studentId,
+    const {
       firstName,
       lastName,
       middleName,
@@ -115,13 +33,120 @@ exports.adminRegisterStudentService = async (data, file, adminId, res) => {
       formalSchool,
       guardians,
       email,
+      currentClassLevel,
+      boardingStatus,
+      boardingDetails,
+      prefectName,
+    } = data;
+
+    // 1. Validate required fields
+    if (!firstName || !lastName || !email || !gender || !boardingStatus || !currentClassLevel || !guardians) {
+      return responseStatus(res, 400, "failed", "Missing required fields: firstName, lastName, email, gender, boardingStatus, currentClassLevel, or guardians");
+    }
+
+    // 2. Validate email format
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      return responseStatus(res, 400, "failed", "Invalid email format");
+    }
+
+    // 3. Check if student exists
+    const studentExists = await Student.findOne({ $or: [{ email }, { NIN: NIN || null }] });
+    if (studentExists) {
+      return responseStatus(res, 409, "failed", "Student already enrolled");
+    }
+
+    // 4. Generate unique studentId
+    let studentId;
+    try {
+      studentId = await generateStudentId(currentClassLevel?.section);
+    } catch (error) {
+      return responseStatus(res, 400, "failed", "Failed to generate student ID: " + error.message);
+    }
+
+    // 5. Hash default password
+    const hashedPassword = await hashPassword("123456789");
+
+    // 6. Validate academic year
+    const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+    if (!currentAcademicYear) {
+      return responseStatus(res, 400, "failed", "No current academic year set");
+    }
+
+    // 7. Validate guardians
+    let parsedGuardians;
+    try {
+      parsedGuardians = Array.isArray(guardians) ? guardians : JSON.parse(guardians);
+      if (!parsedGuardians.length) {
+        return responseStatus(res, 400, "failed", "At least one guardian is required");
+      }
+      for (const guardian of parsedGuardians) {
+        if (!guardian.name || !guardian.relationship || !guardian.phone) {
+          return responseStatus(res, 400, "failed", "Guardian must include name, relationship, and phone");
+        }
+      }
+    } catch (error) {
+      return responseStatus(res, 400, "failed", "Invalid guardians format: " + error.message);
+    }
+
+    // 8. Validate currentClassLevel
+    if (
+      !currentClassLevel?.section ||
+      !currentClassLevel?.className ||
+      !currentClassLevel?.subclass ||
+      !/^[A-Z]$/.test(currentClassLevel.subclass)
+    ) {
+      return responseStatus(res, 400, "failed", "Invalid class level data: section, className, and valid subclass (A-Z) required");
+    }
+
+    // 9. Validate boardingStatus and boardingDetails
+    if (!["Boarder", "Day Student"].includes(boardingStatus)) {
+      return responseStatus(res, 400, "failed", "Boarding status must be 'Boarder' or 'Day Student'");
+    }
+    if (boardingStatus === "Boarder") {
+      if (!boardingDetails?.hall || !boardingDetails?.roomNumber) {
+        return responseStatus(res, 400, "failed", "Boarding details (hall and room number) required for boarders");
+      }
+    } else if (boardingStatus === "Day Student" && boardingDetails) {
+      return responseStatus(res, 400, "failed", "Boarding details should not be provided for Day Students");
+    }
+
+    // 10. Validate profile picture
+    if (!file) {
+      return responseStatus(res, 400, "failed", "Profile picture is required");
+    }
+    const profilePictureUrl = file.path; // Cloudinary secure URL
+
+    // 11. Find matching ClassLevel
+    const classLevel = await ClassLevel.findOne({
+      section: currentClassLevel.section,
+      name: currentClassLevel.className,
+      academicYear: currentAcademicYear._id,
+      "subclasses.letter": currentClassLevel.subclass,
+    });
+    if (!classLevel) {
+      return responseStatus(res, 404, "failed", "ClassLevel not found for the specified section, className, subclass, and academic year");
+    }
+
+    // 12. Create student
+    const newStudent = await Student.create({
+      studentId,
+      firstName,
+      lastName,
+      middleName,
+      tribe,
+      gender,
+      religion,
+      NIN,
+      formalSchool,
+      guardians: parsedGuardians,
+      email,
       password: hashedPassword,
       profilePictureUrl,
       currentClassLevel: {
         section: currentClassLevel.section,
         className: currentClassLevel.className,
         subclass: currentClassLevel.subclass,
-        academicYear: currentAcademicYear.name, // Store academic year name (e.g., "2024/2025")
+        academicYear: currentAcademicYear.name,
       },
       boardingStatus,
       boardingDetails: boardingStatus === "Boarder" ? boardingDetails : undefined,
@@ -129,15 +154,16 @@ exports.adminRegisterStudentService = async (data, file, adminId, res) => {
       role: "student",
     });
 
-    // 10. Add to academic year
+    // 13. Update academic year
     currentAcademicYear.students.push(newStudent._id);
     await currentAcademicYear.save();
 
-    // 11. Populate examResults for response
-    const populatedStudent = await Student.findById(newStudent._id)
-      .select("-password")
-      .populate("examResults");
+    // 14. Update ClassLevel
+    classLevel.students.push(newStudent._id);
+    await classLevel.save();
 
+    // 15. Return student without password
+    const populatedStudent = await Student.findById(newStudent._id).select("-password");
     return responseStatus(res, 201, "success", populatedStudent);
   } catch (error) {
     if (file) {
@@ -151,6 +177,7 @@ exports.adminRegisterStudentService = async (data, file, adminId, res) => {
   }
 };
 
+
 /**
  * Student login service.
  * @param {Object} data - The data containing login credentials.
@@ -162,9 +189,7 @@ exports.studentLoginService = async (data, res) => {
 
   try {
     // Find student with password
-    const student = await Student.findOne({ email })
-      .select("+password")
-      .populate("examResults");
+    const student = await Student.findOne({ email }).select("+password");
     if (!student) {
       return responseStatus(res, 401, "failed", "Invalid login credentials");
     }
@@ -194,9 +219,7 @@ exports.studentLoginService = async (data, res) => {
  */
 exports.getStudentsProfileService = async (id, res) => {
   try {
-    const student = await Student.findById(id)
-      .select("-password -createdAt -updatedAt")
-      .populate("examResults");
+    const student = await Student.findById(id).select("-password -createdAt -updatedAt");
     if (!student) {
       return responseStatus(res, 404, "failed", "Student not found");
     }
@@ -213,9 +236,7 @@ exports.getStudentsProfileService = async (id, res) => {
  */
 exports.getAllStudentsByAdminService = async (res) => {
   try {
-    const students = await Student.find()
-      .select("-password")
-      .populate("examResults");
+    const students = await Student.find().select("-password");
     return responseStatus(res, 200, "success", students);
   } catch (error) {
     return responseStatus(res, 500, "failed", "Error fetching students: " + error.message);
@@ -230,9 +251,7 @@ exports.getAllStudentsByAdminService = async (res) => {
  */
 exports.getStudentByAdminService = async (studentId, res) => {
   try {
-    const student = await Student.findById(studentId)
-      .select("-password")
-      .populate("examResults");
+    const student = await Student.findById(studentId).select("-password");
     if (!student) {
       return responseStatus(res, 404, "failed", "Student not found");
     }
@@ -245,6 +264,7 @@ exports.getStudentByAdminService = async (studentId, res) => {
 /**
  * Student update profile service.
  * @param {Object} data - The data containing updated profile information.
+ * @param {Object} file - The uploaded profile picture file (from Multer).
  * @param {string} userId - The ID of the student.
  * @param {Object} res - The Express response object.
  * @returns {Object} - The response object indicating success or failure.
@@ -303,9 +323,7 @@ exports.studentUpdateProfileService = async (data, file, userId, res) => {
       userId,
       updateData,
       { new: true, runValidators: true }
-    )
-      .select("-password")
-      .populate("examResults");
+    ).select("-password");
 
     return responseStatus(res, 200, "success", {
       student: updatedStudent,
@@ -391,9 +409,10 @@ exports.adminUpdateStudentService = async (data, file, studentId, res) => {
   }
 
   // Validate currentClassLevel if provided
+  let parsedClassLevel;
   if (currentClassLevel) {
     try {
-      const parsedClassLevel = typeof currentClassLevel === "string" ? JSON.parse(currentClassLevel) : currentClassLevel;
+      parsedClassLevel = typeof currentClassLevel === "string" ? JSON.parse(currentClassLevel) : currentClassLevel;
       if (
         !parsedClassLevel.section ||
         !parsedClassLevel.className ||
@@ -418,12 +437,52 @@ exports.adminUpdateStudentService = async (data, file, studentId, res) => {
 
   // Find current academic year if updating class level
   let academicYearName = studentFound.currentClassLevel?.academicYear;
-  if (currentClassLevel) {
-    const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+  let currentAcademicYear;
+  if (parsedClassLevel) {
+    currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
     if (!currentAcademicYear) {
       return responseStatus(res, 400, "failed", "No current academic year set");
     }
     academicYearName = currentAcademicYear.name;
+  }
+
+  // Handle ClassLevel update if currentClassLevel is provided
+  if (parsedClassLevel) {
+    // Find new ClassLevel
+    const newClassLevel = await ClassLevel.findOne({
+      section: parsedClassLevel.section,
+      name: parsedClassLevel.className,
+      academicYear: currentAcademicYear._id,
+      "subclasses.letter": parsedClassLevel.subclass,
+    });
+    if (!newClassLevel) {
+      return responseStatus(res, 404, "failed", "ClassLevel not found for the specified section, className, subclass, and academic year");
+    }
+
+    // Remove student from old ClassLevel if class level is changing
+    if (
+      studentFound.currentClassLevel.section !== parsedClassLevel.section ||
+      studentFound.currentClassLevel.className !== parsedClassLevel.className ||
+      studentFound.currentClassLevel.subclass !== parsedClassLevel.subclass ||
+      studentFound.currentClassLevel.academicYear !== academicYearName
+    ) {
+      const oldClassLevel = await ClassLevel.findOne({
+        section: studentFound.currentClassLevel.section,
+        name: studentFound.currentClassLevel.className,
+        "subclasses.letter": studentFound.currentClassLevel.subclass,
+        academicYear: (await AcademicYear.findOne({ name: studentFound.currentClassLevel.academicYear }))._id,
+      });
+      if (oldClassLevel) {
+        oldClassLevel.students = oldClassLevel.students.filter((id) => !id.equals(studentId));
+        await oldClassLevel.save();
+      }
+
+      // Add student to new ClassLevel
+      if (!newClassLevel.students.includes(studentId)) {
+        newClassLevel.students.push(studentId);
+        await newClassLevel.save();
+      }
+    }
   }
 
   // Handle profile picture upload
@@ -451,11 +510,11 @@ exports.adminUpdateStudentService = async (data, file, studentId, res) => {
     formalSchool,
     guardians: guardians ? (Array.isArray(guardians) ? guardians : JSON.parse(guardians)) : undefined,
     email,
-    currentClassLevel: currentClassLevel
+    currentClassLevel: parsedClassLevel
       ? {
-          section: currentClassLevel.section,
-          className: currentClassLevel.className,
-          subclass: currentClassLevel.subclass,
+          section: parsedClassLevel.section,
+          className: parsedClassLevel.className,
+          subclass: parsedClassLevel.subclass,
           academicYear: academicYearName,
         }
       : undefined,
@@ -480,9 +539,7 @@ exports.adminUpdateStudentService = async (data, file, studentId, res) => {
       studentId,
       { $set: updateData },
       { new: true, runValidators: true }
-    )
-      .select("-password")
-      .populate("examResults");
+    ).select("-password");
 
     return responseStatus(res, 200, "success", updatedStudent);
   } catch (error) {
@@ -510,7 +567,7 @@ exports.studentWriteExamService = async (data, studentId, examId, res) => {
 
   try {
     // Find the student
-    const student = await Student.findById(studentId).populate("examResults");
+    const student = await Student.findById(studentId);
     if (!student) {
       return responseStatus(res, 404, "failed", "Student not found");
     }
@@ -545,7 +602,7 @@ exports.studentWriteExamService = async (data, studentId, examId, res) => {
     const result = await resultCalculate(questions, answers, exam);
 
     // Create result record
-    const createResult = await Results.create({
+    await Results.create({
       studentId: student._id,
       teacher: exam.createdBy,
       exam: exam._id,
@@ -559,10 +616,6 @@ exports.studentWriteExamService = async (data, studentId, examId, res) => {
       academicTerm: exam.academicTerm,
       academicYear: exam.academicYear,
     });
-
-    // Push exam result ref to student
-    student.examResults.push(createResult._id);
-    await student.save();
 
     return responseStatus(res, 200, "success", "Answer submitted successfully");
   } catch (error) {

@@ -157,12 +157,6 @@ const studentSchema = new mongoose.Schema(
       default: false,
     },
     yearGraduated: String,
-    examResults: [
-      {
-        type: mongoose.Schema.Types.ObjectId,
-        ref: "Result",
-      },
-    ],
   },
   {
     timestamps: true,

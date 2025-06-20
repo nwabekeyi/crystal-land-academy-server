@@ -14,15 +14,10 @@ const {
  * @desc Admin Register Student
  * @route POST /api/students/admin/register
  * @access Private Admin only
- **/
+ */
 exports.adminRegisterStudentController = async (req, res) => {
-  try {
-    const file = req.file || (req.files && req.files[0]); // Support both
-    await adminRegisterStudentService(req.body, file, res);
-    responseStatus(res, 201, "success", req.body);
-  } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
-  }
+  const file = req.file || (req.files && req.files[0]);
+  await adminRegisterStudentService(req.body, file, res);
 };
 
 /**

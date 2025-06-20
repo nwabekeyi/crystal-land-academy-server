@@ -32,8 +32,7 @@ exports.createSubjectController = async (req, res) => {
  **/
 exports.getSubjectsController = async (req, res) => {
   try {
-    const result = await getAllSubjectsService();
-    responseStatus(res, 200, "success", result);
+    await getAllSubjectsService(res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

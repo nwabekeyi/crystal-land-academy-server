@@ -26,7 +26,7 @@ teachersRouter
   .post(
     isLoggedIn,
     isAdmin,
-    upload.single('photo'), // Upload profile picture
+    upload.single('profilePicture'), // Upload profile picture
     createTeacherController
   );
 

@@ -4,6 +4,10 @@ const path = require("path");
 const cors = require("cors");
 const routeSync = require("../handlers/routeSync.handler");
 const { verifyEnv } = require("../config/env.Config");
+require("../config/dbConnect");
+
+// Import the cron job
+const updateCurrentTerm = require("../cronJobs/updateCurrentTerm");
 
 // Verify all environment variables
 verifyEnv();
@@ -16,20 +20,18 @@ app.use(express.json());
 app.use(morgan("dev"));
 
 // CORS configuration
-app.use(cors({
-  origin: [
-    "http://localhost:5174",
-    "https://crystal-land-academy.vercel.app"
-  ],
-  credentials: true
-}));
+app.use(
+  cors({
+    origin: ["http://localhost:5174", "https://crystal-land-academy.vercel.app"],
+    credentials: true,
+  })
+);
 
 // Register backend routes
 routeSync(app, "staff");
 routeSync(app, "academic");
 routeSync(app, "students");
-routeSync(app, 'enquiry'); 
-
+routeSync(app, "enquiry");
 
 // Serve static files from the frontend build
 app.use(express.static(path.join(__dirname, "../public/dist")));
@@ -43,5 +45,8 @@ app.get("*", (req, res) => {
 app.all("*", (req, res) => {
   res.status(404).send("Invalid Route");
 });
+
+// Start the cron job
+updateCurrentTerm();
 
 module.exports = app;

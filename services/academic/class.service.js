@@ -6,23 +6,47 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  * Create a new ClassLevel.
  * @param {Object} data - Class data including section, name, description, academicYear, subclasses, etc.
  * @param {string} userId - The ID of the admin creating the class.
+ * @param {Object} res - The response object.
  * @returns {Object} - Response status.
  */
-exports.createClassLevelService = async (data, userId) => {
+exports.createClassLevelService = async (data, userId, res) => {
   const {
     section,
     name,
     description,
     academicYear,
     subclasses = [],
-    subjectsPerTerm = [],
     teachers = [],
   } = data;
 
   try {
+    // Check for duplicate class
     const existing = await ClassLevel.findOne({ section, name, academicYear });
     if (existing) {
-      return responseStatus(null, 400, "failed", "Class already exists for this academic year");
+      return responseStatus(res, 400, "failed", "Class already exists for this academic year");
+    }
+
+    // Validate subclasses
+    if (subclasses.length > 0) {
+      const letters = subclasses.map((sub) => sub.letter);
+      if (new Set(letters).size !== letters.length) {
+        return responseStatus(res, 400, "failed", "Subclass letters must be unique");
+      }
+
+      const isSeniorSecondary = ["SS 1", "SS 2", "SS 3"].includes(name);
+      for (const sub of subclasses) {
+        // Restrict subjects to SS1-SS3
+        if (!isSeniorSecondary && sub.subjects && sub.subjects.length > 0) {
+          return responseStatus(res, 400, "failed", `Subjects not allowed for non-SS class: ${name}`);
+        }
+        // Validate feesPerTerm
+        if (sub.feesPerTerm && sub.feesPerTerm.length > 0) {
+          const terms = sub.feesPerTerm.map((fee) => fee.termName);
+          if (new Set(terms).size !== terms.length) {
+            return responseStatus(res, 400, "failed", `Duplicate fee terms in subclass ${sub.letter}`);
+          }
+        }
+      }
     }
 
     const classLevel = await ClassLevel.create({
@@ -32,47 +56,61 @@ exports.createClassLevelService = async (data, userId) => {
       academicYear,
       createdBy: userId,
       subclasses,
-      subjectsPerTerm,
       teachers,
     });
 
+    // Update Admin
     const admin = await Admin.findById(userId);
     if (admin) {
       admin.classLevels.push(classLevel._id);
       await admin.save();
     }
 
-    return responseStatus(null, 201, "success", classLevel);
+    // Populate response
+    const populatedClass = await ClassLevel.findById(classLevel._id).populate(
+      "createdBy academicYear teachers students subclasses.subjects"
+    );
+
+    return responseStatus(res, 201, "success", populatedClass);
   } catch (error) {
     console.error("Create ClassLevel Error:", error);
-    return responseStatus(null, 500, "error", "An error occurred while creating the class");
+    return responseStatus(res, 500, "error", "An error occurred while creating the class");
   }
 };
 
 /**
  * Get all ClassLevels.
+ * @param {Object} res - The response object.
  */
-exports.getAllClassesService = async () => {
+exports.getAllClassesService = async (res) => {
   try {
-    const classes = await ClassLevel.find().populate("createdBy academicYear teachers students");
-    return classes;
+    const classes = await ClassLevel.find().populate(
+      "createdBy academicYear teachers students subclasses.subjects"
+    );
+    return classes
   } catch (error) {
     console.error("Fetch All Classes Error:", error);
-    return [];
+    return responseStatus(res, 500, "error", "An error occurred while fetching classes");
   }
 };
 
 /**
  * Get a single ClassLevel by ID.
  * @param {string} id - ClassLevel ID.
+ * @param {Object} res - The response object.
  */
-exports.getClassLevelsService = async (id) => {
+exports.getClassLevelsService = async (id, res) => {
   try {
-    const classLevel = await ClassLevel.findById(id).populate("createdBy academicYear teachers students");
-    return classLevel;
+    const classLevel = await ClassLevel.findById(id).populate(
+      "createdBy academicYear teachers students subclasses.subjects"
+    );
+    if (!classLevel) {
+      return responseStatus(res, 404, "failed", "Class not found");
+    }
+    return responseStatus(res, 200, "success", classLevel);
   } catch (error) {
     console.error("Get ClassLevel Error:", error);
-    return null;
+    return responseStatus(res, 500, "error", "An error occurred while fetching the class");
   }
 };
 
@@ -81,28 +119,51 @@ exports.getClassLevelsService = async (id) => {
  * @param {Object} data - Class data to update.
  * @param {string} id - ClassLevel ID.
  * @param {string} userId - Admin ID performing the update.
+ * @param {Object} res - The response object.
  */
-exports.updateClassLevelService = async (data, id, userId) => {
+exports.updateClassLevelService = async (data, id, userId, res) => {
   const {
     section,
     name,
     description,
     academicYear,
     subclasses,
-    subjectsPerTerm,
     teachers,
   } = data;
 
   try {
+    // Check for duplicate class
     const classFound = await ClassLevel.findOne({
       _id: { $ne: id },
       section,
       name,
       academicYear,
     });
-
     if (classFound) {
-      return responseStatus(null, 400, "failed", "Another class with same name already exists");
+      return responseStatus(res, 400, "failed", "Another class with same name already exists");
+    }
+
+    // Validate subclasses
+    if (subclasses && subclasses.length > 0) {
+      const letters = subclasses.map((sub) => sub.letter);
+      if (new Set(letters).size !== letters.length) {
+        return responseStatus(res, 400, "failed", "Subclass letters must be unique");
+      }
+
+      const isSeniorSecondary = ["SS 1", "SS 2", "SS 3"].includes(name);
+      for (const sub of subclasses) {
+        // Restrict subjects to SS1-SS3
+        if (!isSeniorSecondary && sub.subjects && sub.subjects.length > 0) {
+          return responseStatus(res, 400, "failed", `Subjects not allowed for non-SS class: ${name}`);
+        }
+        // Validate feesPerTerm
+        if (sub.feesPerTerm && sub.feesPerTerm.length > 0) {
+          const terms = sub.feesPerTerm.map((fee) => fee.termName);
+          if (new Set(terms).size !== terms.length) {
+            return responseStatus(res, 400, "failed", `Duplicate fee terms in subclass ${sub.letter}`);
+          }
+        }
+      }
     }
 
     const updated = await ClassLevel.findByIdAndUpdate(
@@ -113,30 +174,44 @@ exports.updateClassLevelService = async (data, id, userId) => {
         description,
         academicYear,
         subclasses,
-        subjectsPerTerm,
         teachers,
         createdBy: userId,
       },
       { new: true }
-    );
+    ).populate("createdBy academicYear teachers students subclasses.subjects");
 
-    return responseStatus(null, 200, "success", updated);
+    if (!updated) {
+      return responseStatus(res, 404, "failed", "Class not found");
+    }
+
+    return responseStatus(res, 200, "success", updated);
   } catch (error) {
     console.error("Update ClassLevel Error:", error);
-    return responseStatus(null, 500, "error", "An error occurred while updating the class");
+    return responseStatus(res, 500, "error", "An error occurred while updating the class");
   }
 };
 
 /**
  * Delete a ClassLevel.
  * @param {string} id - ClassLevel ID.
+ * @param {Object} res - The response object.
  */
-exports.deleteClassLevelService = async (id) => {
+exports.deleteClassLevelService = async (id, res) => {
   try {
     const deleted = await ClassLevel.findByIdAndDelete(id);
-    return deleted;
+    if (!deleted) {
+      return responseStatus(res, 404, "failed", "Class not found");
+    }
+
+    // Remove classLevel from Admin
+    await Admin.updateMany(
+      { classLevels: id },
+      { $pull: { classLevels: id } }
+    );
+
+    return responseStatus(res, 200, "success", "Class deleted successfully");
   } catch (error) {
     console.error("Delete ClassLevel Error:", error);
-    return null;
+    return responseStatus(res, 500, "error", "An error occurred while deleting the class");
   }
 };
