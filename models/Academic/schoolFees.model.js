@@ -3,7 +3,7 @@ const { Schema, model } = mongoose;
 const { ObjectId } = Schema;
 
 // Individual part payment (e.g., split fees)
-const paymentInstanceSchema = new Schema(
+const schoolFeesSchema= new Schema(
   {
     amountPaid: {
       type: Number,
@@ -40,7 +40,7 @@ const termPaymentSchema = new Schema(
       required: true,
       match: /^[A-Z]$/, // matches subclass like 'A', 'B', etc.
     },
-    payments: [paymentInstanceSchema],
+    payments: [schoolFeesSchema],
   },
   { _id: false, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
