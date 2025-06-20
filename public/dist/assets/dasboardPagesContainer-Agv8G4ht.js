@@ -1,0 +1,1 @@
+import{j as r}from"./index-CLJpG2dk.js";import{w as e}from"./TextField-DnFjd7Bb.js";const i=s=>o=>{const{home:t}=o;return console.log("Home prop in HOC:",t),r.jsx(e,{sx:{overflow:"auto",minWidth:{sx:"90%",sm:"100%",md:"100%",lg:"100%"}},children:r.jsx(s,{...o})})};export{i as w};
