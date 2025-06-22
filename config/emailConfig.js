@@ -1,12 +1,31 @@
 const nodemailer = require('nodemailer');
-require('dotenv').config();
 
 const transporter = nodemailer.createTransport({
-  service: 'gmail',
+  host: 'crystallandacademy.com',
+  port: 465,
+  secure: true,
   auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
+    user: 'admin@crystallandacademy.com',
+    pass: '123456789',
+  },
+  tls: {
+    rejectUnauthorized: false,
   },
 });
 
-module.exports = transporter;
+const sendTestEmail = async () => {
+  try {
+    const info = await transporter.sendMail({
+      from: '"Crystal Land Academy" <admin@crystallandacademy.com>',
+      to: 'chidi90simeon@gmail.com',
+      subject: '🚀 DKIM + SPF Email Test',
+      html: `<p>This test should now pass DKIM, SPF, and DMARC checks.</p>`,
+    });
+
+    console.log('✅ Email sent:', info.messageId);
+  } catch (error) {
+    console.error('❌ Failed to send email:', error);
+  }
+};
+
+sendTestEmail();
