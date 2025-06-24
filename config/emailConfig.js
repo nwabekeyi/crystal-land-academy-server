@@ -1,31 +1,46 @@
-const nodemailer = require('nodemailer');
+// emailConfig.js
+const sgMail = require('@sendgrid/mail');
+const { emailKey, senderEmail } = require('./env.Config');
 
-const transporter = nodemailer.createTransport({
-  host: 'crystallandacademy.com',
-  port: 465,
-  secure: true,
-  auth: {
-    user: 'admin@crystallandacademy.com',
-    pass: '123456789',
-  },
-  tls: {
-    rejectUnauthorized: false,
-  },
-});
+sgMail.setApiKey(emailKey);
 
-const sendTestEmail = async () => {
+/**
+ * Send an email using SendGrid Template
+ * @param {Object} options
+ * @param {string} options.to - Recipient email
+ * @param {string} options.templateId - SendGrid dynamic template ID
+ * @param {object} options.dynamicTemplateData - Data for template
+ * @param {string} [options.subject] - Email subject (optional, falls back to template default)
+ */
+const sendEmail = async ({ to, templateId, dynamicTemplateData, subject }) => {
+  const msg = {
+    to,
+    from: {
+      email: senderEmail,
+      name: 'Crystalland academy', // Use provided senderName or default to 'Crystal Land Academy'
+    },
+    templateId,
+    dynamicTemplateData: {
+      ...dynamicTemplateData,
+      year: new Date().getFullYear(), // Add current year
+      unsubscribe: 'https://www.crystallandacademy.com', // Unsubscribe link
+      unsubscribe_preferences: 'https://www.crystallandacademy.com', // Preferences link
+    },
+  };
+
+  // Only add subject if provided, allowing template default if omitted
+  if (subject) {
+    msg.subject = subject;
+  }
+
   try {
-    const info = await transporter.sendMail({
-      from: '"Crystal Land Academy" <admin@crystallandacademy.com>',
-      to: 'chidi90simeon@gmail.com',
-      subject: '🚀 DKIM + SPF Email Test',
-      html: `<p>This test should now pass DKIM, SPF, and DMARC checks.</p>`,
-    });
-
-    console.log('✅ Email sent:', info.messageId);
+    const response = await sgMail.send(msg);
+    console.log(`✅ Email sent: ${response[0].statusCode}`);
+    return response;
   } catch (error) {
-    console.error('❌ Failed to send email:', error);
+    console.error('❌ SendGrid Error:', error.response?.body || error.message);
+    throw new Error('Failed to send email');
   }
 };
 
-sendTestEmail();
+module.exports = { sendEmail };

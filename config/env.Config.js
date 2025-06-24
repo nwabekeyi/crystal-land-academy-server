@@ -9,8 +9,10 @@ const jwt_secret_key = process.env.JWT_SECRET_KEY;
 const cloudinary_name = process.env.CLOUDINARY_CLOUD_NAME;
 const cloudinary_key = process.env.CLOUDINARY_API_KEY;
 const cloudinary_secret = process.env.CLOUDINARY_API_SECRET;
-const emailPass = process.env.EMAIL_PASS;
-const emailUser = process.env.EMAIL_USER;
+const emailKey = process.env.SENDGRID_API_KEY;
+const senderEmail = process.env.SENDER_EMAIL;
+const prodUrl = process.env.PROD_URL;
+
 
 
 const verifyEnv = () => {
@@ -27,6 +29,7 @@ module.exports = {
   cloudinary_key,
   cloudinary_secret,
   verifyEnv,
-  emailPass,
-  emailUser
+  emailKey,
+  senderEmail,
+  prodUrl
 };
