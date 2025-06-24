@@ -59,13 +59,6 @@ exports.createClassLevelService = async (data, userId, res) => {
       teachers,
     });
 
-    // Update Admin
-    const admin = await Admin.findById(userId);
-    if (admin) {
-      admin.classLevels.push(classLevel._id);
-      await admin.save();
-    }
-
     // Populate response
     const populatedClass = await ClassLevel.findById(classLevel._id).populate(
       "createdBy academicYear teachers students subclasses.subjects"
@@ -84,10 +77,14 @@ exports.createClassLevelService = async (data, userId, res) => {
  */
 exports.getAllClassesService = async (res) => {
   try {
-    const classes = await ClassLevel.find().populate(
-      "createdBy academicYear teachers students subclasses.subjects"
-    );
-    return classes
+    const classes = await ClassLevel.find().populate([
+      { path: 'createdBy', select: '_id firstName lastName email' },
+      { path: 'academicYear', select: '_id name' }, // Select only _id and name
+      { path: 'teachers', select: '_id firstName lastName email' },
+      { path: 'students', select: '_id firstName lastName email' },
+      { path: 'subclasses.subjects', select: '_id name' },
+    ]);
+    return classes;
   } catch (error) {
     console.error("Fetch All Classes Error:", error);
     return responseStatus(res, 500, "error", "An error occurred while fetching classes");
@@ -202,12 +199,6 @@ exports.deleteClassLevelService = async (id, res) => {
     if (!deleted) {
       return responseStatus(res, 404, "failed", "Class not found");
     }
-
-    // Remove classLevel from Admin
-    await Admin.updateMany(
-      { classLevels: id },
-      { $pull: { classLevels: id } }
-    );
 
     return responseStatus(res, 200, "success", "Class deleted successfully");
   } catch (error) {

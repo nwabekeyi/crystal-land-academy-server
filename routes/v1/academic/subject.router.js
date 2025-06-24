@@ -1,9 +1,10 @@
+// routes/academic/subject.route.js
 const express = require("express");
 const subjectRouter = express.Router();
-// middlewares
+// Middlewares
 const isAdmin = require("../../../middlewares/isAdmin");
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
-// controllers
+// Controllers
 const {
   getSubjectsController,
   getSubjectController,
@@ -12,14 +13,12 @@ const {
   createSubjectController,
 } = require("../../../controllers/academic/subject.controller");
 
-subjectRouter.route("/subject").get(isLoggedIn, isAdmin, getSubjectsController);
+subjectRouter.route("/subjects").get(isLoggedIn, isAdmin, getSubjectsController);
+subjectRouter.route("/subjects/create").post(isLoggedIn, isAdmin, createSubjectController);
 subjectRouter
-  .route("/subject/:id")
+  .route("/subjects/:id")
   .get(isLoggedIn, isAdmin, getSubjectController)
   .patch(isLoggedIn, isAdmin, updateSubjectController)
   .delete(isLoggedIn, isAdmin, deleteSubjectController);
-subjectRouter
-  .route("/create-subject/:programId")
-  .post(isLoggedIn, isAdmin, createSubjectController);
 
 module.exports = subjectRouter;
