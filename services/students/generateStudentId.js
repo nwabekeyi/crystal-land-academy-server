@@ -10,14 +10,14 @@ const generateStudentId = async (section) => {
 
   // Query the last studentId for the given section
   const lastStudent = await Student.findOne({
-    studentId: { $regex: `^CL/${sectionPrefix}/`, $options: "i" },
+    studentId: { $regex: `^CLIA/${sectionPrefix}/`, $options: "i" },
   })
     .sort({ studentId: -1 }) // Sort descending to get the latest ID
     .select("studentId");
 
   let nextNumber = 1; // Default to 1 if no previous students
   if (lastStudent && lastStudent.studentId) {
-    const match = lastStudent.studentId.match(/CL\/[A-Z]+\/(\d+)/);
+    const match = lastStudent.studentId.match(/CLIA\/[A-Z]+\/(\d+)/);
     if (match) {
       nextNumber = parseInt(match[1], 10) + 1; // Increment the last number
     }
@@ -27,7 +27,7 @@ const generateStudentId = async (section) => {
   const formattedNumber = nextNumber.toString().padStart(2, "0");
 
   // Construct studentId
-  const studentId = `CL/${sectionPrefix}/${formattedNumber}`;
+  const studentId = `CLIA/${sectionPrefix}/${formattedNumber}`;
 
   // Verify uniqueness (in case of race conditions)
   const existingStudent = await Student.findOne({ studentId });

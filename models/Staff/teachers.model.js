@@ -34,6 +34,7 @@ const teachingAssignmentSchema = new mongoose.Schema(
       {
         type: String,
         required: true,
+        match: [/^[A-Z]$/, "Subclass must be a single uppercase letter"],
       },
     ],
   },
@@ -97,11 +98,13 @@ const teacherSchema = new mongoose.Schema(
       type: String,
       default: "teacher",
     },
-    subject: {
-      type: ObjectId,
-      ref: "Subject",
-      required: true,
-    },
+    subject: [
+      {
+        type: ObjectId,
+        ref: "Subject",
+        required: false, // Subjects are optional and allowed for all classes
+      },
+    ],
     applicationStatus: {
       type: String,
       enum: ["pending", "approved", "rejected"],
@@ -167,7 +170,7 @@ const teacherSchema = new mongoose.Schema(
 );
 
 // Validate className based on section
-teachingAssignmentSchema.pre('validate', function (next) {
+teachingAssignmentSchema.pre("validate", function (next) {
   const primaryClasses = [
     "Kindergarten",
     "Reception",
@@ -187,6 +190,27 @@ teachingAssignmentSchema.pre('validate', function (next) {
   } else if (this.section === "Secondary" && !secondaryClasses.includes(this.className)) {
     next(new Error(`Invalid class name for Secondary section: ${this.className}`));
   }
+  next();
+});
+
+// Ensure subjects are allowed for all classes and subclasses
+teacherSchema.pre("validate", function (next) {
+  // No restriction on subjects for non-SS classes
+  if (this.teachingAssignments.length > 0 && this.subject.length > 0) {
+    const assignment = this.teachingAssignments[0];
+    // Only validate that subjects exist (handled in service)
+    // No check for SS-only or subclass A restrictions
+  }
+  next();
+});
+
+teacherSchema.pre("save", function (next) {
+  this.updatedAt = Date.now();
+  next();
+});
+
+teacherSchema.pre("findOneAndUpdate", function (next) {
+  this.set({ updatedAt: Date.now() });
   next();
 });
 

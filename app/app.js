@@ -33,6 +33,8 @@ routeSync(app, "academic");
 routeSync(app, "students");
 routeSync(app, "enquiry");
 routeSync(app, "password");
+routeSync(app, "registrationCode");
+
 
 
 // Serve static files from the frontend build

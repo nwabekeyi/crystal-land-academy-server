@@ -71,7 +71,7 @@ const subclassSchema = new mongoose.Schema(
         type: ObjectId,
         ref: "Subject",
       },
-    ], // Subjects for SS1-SS3 subclasses only
+    ], // Subjects allowed for all classes
     timetables: [timetableSchema],
     feesPerTerm: [feeSchema], // Fees for each term in this subclass
   },
@@ -118,8 +118,15 @@ const ClassLevelSchema = new mongoose.Schema(
     ],
     teachers: [
       {
-        type: ObjectId,
-        ref: "Teacher",
+        teacherId: {
+          type: ObjectId,
+          ref: "Teacher",
+          required: true,
+        },
+        name: {
+          type: String,
+          required: true,
+        },
       },
     ],
   },
@@ -134,7 +141,6 @@ ClassLevelSchema.pre("validate", async function (next) {
       "Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
     ];
     const secondary = ["JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"];
-    const seniorSecondary = ["SS 1", "SS 2", "SS 3"];
 
     // Validate section and name
     if (this.section === "Primary" && !primary.includes(this.name)) {
@@ -150,26 +156,14 @@ ClassLevelSchema.pre("validate", async function (next) {
       return next(new Error("Subclass letters must be unique"));
     }
 
-    // Validate subjects for SS1-SS3 subclasses
-    const isSeniorSecondary = seniorSecondary.includes(this.name);
+    // Validate subjects for all subclasses (no SS restriction)
     for (const subclass of this.subclasses) {
-      // Subjects are only allowed for SS1-SS3
-      if (!isSeniorSecondary && subclass.subjects && subclass.subjects.length > 0) {
-        return next(
-          new Error(`Subjects are not allowed for non-SS classes in subclass ${subclass.letter}`)
-        );
-      }
-
-      // Validate subjects for SS1-SS3
-      if (isSeniorSecondary && Array.isArray(subclass.subjects)) {
-        // Ensure no duplicate subjects
+      if (Array.isArray(subclass.subjects)) {
         const subjectIds = subclass.subjects.map(String);
         if (new Set(subjectIds).size !== subjectIds.length) {
           return next(new Error(`Duplicate subjects in subclass ${subclass.letter}`));
         }
 
-        // Validate subject IDs exist (optional, requires DB query)
-        // Uncomment if you want to validate Subject IDs
         for (const subjectId of subclass.subjects) {
           const subjectExists = await mongoose.model("Subject").exists({ _id: subjectId });
           if (!subjectExists) {
@@ -178,7 +172,6 @@ ClassLevelSchema.pre("validate", async function (next) {
         }
       }
 
-      // Validate timetable times
       if (Array.isArray(subclass.timetables)) {
         for (const tt of subclass.timetables) {
           const start = parseInt(tt.startTime.replace(":", ""));
@@ -189,7 +182,6 @@ ClassLevelSchema.pre("validate", async function (next) {
         }
       }
 
-      // Validate fees
       if (Array.isArray(subclass.feesPerTerm)) {
         const seenTerms = new Set();
         for (const fee of subclass.feesPerTerm) {
@@ -201,6 +193,14 @@ ClassLevelSchema.pre("validate", async function (next) {
             return next(new Error(`Fee amount must be non-negative in subclass ${subclass.letter}`));
           }
         }
+      }
+    }
+
+    // Ensure unique teacher IDs
+    if (Array.isArray(this.teachers)) {
+      const teacherIds = this.teachers.map((t) => t.teacherId.toString());
+      if (new Set(teacherIds).size !== teacherIds.length) {
+        return next(new Error("Duplicate teacher IDs in teachers array"));
       }
     }
 

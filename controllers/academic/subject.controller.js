@@ -15,7 +15,7 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  */
 exports.createSubjectController = async (req, res) => {
   try {
-    const result = await createSubjectService(req.body, req.userAuth.id);
+    const result = await createSubjectService(req.body);
     responseStatus(res, 201, "success", result);
   } catch (error) {
     responseStatus(res, error.statusCode || 500, "failed", error.message);
@@ -57,7 +57,7 @@ exports.getSubjectController = async (req, res) => {
  */
 exports.updateSubjectController = async (req, res) => {
   try {
-    const result = await updateSubjectService(req.body, req.params.id, req.userAuth.id);
+    const result = await updateSubjectService(req.body, req.params.id);
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, error.statusCode || 500, "failed", error.message);

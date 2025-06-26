@@ -12,7 +12,7 @@ const upload = createMulter(); // Initialize Multer
 
 // Controllers
 const {
-  createTeacherController,
+  adminRegisterTeacherController, // Changed from createTeacherController
   teacherLoginController,
   getAllTeachersController,
   getTeacherProfileController,
@@ -27,7 +27,7 @@ teachersRouter
     isLoggedIn,
     isAdmin,
     upload.single('profilePicture'), // Upload profile picture
-    createTeacherController
+    adminRegisterTeacherController // Changed from createTeacherController
   );
 
 // Teacher login
@@ -40,7 +40,7 @@ teachersRouter
 
 // Get teacher profile
 teachersRouter
-  .route("/teacher/:teacherId/profile")
+  .route("/teacher/profile/:teacherId")
   .get(isLoggedIn, isTeacher, getTeacherProfileController);
 
 // Teacher update own profile

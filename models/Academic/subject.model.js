@@ -1,4 +1,3 @@
-// models/Academic/subject.model.js
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 const AcademicYear = require("./academicYear.model");
@@ -19,12 +18,17 @@ const subjectSchema = new mongoose.Schema(
       ref: "AcademicYear",
       required: true,
     },
-    classLevels: [
+    classLevelSubclasses: [
       {
         classLevel: {
           type: ObjectId,
           ref: "ClassLevel",
           required: true,
+        },
+        subclassLetter: {
+          type: String,
+          required: true,
+          match: /^[A-Z]$/, // Single capital letter (A, B, etc.)
         },
         teachers: [
           {
@@ -34,16 +38,11 @@ const subjectSchema = new mongoose.Schema(
         ],
       },
     ],
-    createdBy: {
-      type: ObjectId,
-      ref: "Admin",
-      required: true,
-    },
   },
   { timestamps: true }
 );
 
-// Pre-save hook to validate academicYear and classLevels
+// Pre-save hook to validate academicYear and classLevelSubclasses
 subjectSchema.pre("save", async function (next) {
   try {
     const subject = this;
@@ -54,21 +53,32 @@ subjectSchema.pre("save", async function (next) {
       throw new Error("Referenced AcademicYear does not exist");
     }
 
-    // Validate classLevels and teachers
-    if (subject.classLevels && subject.classLevels.length > 0) {
-      for (const cl of subject.classLevels) {
+    // Validate classLevelSubclasses and teachers
+    if (subject.classLevelSubclasses && subject.classLevelSubclasses.length > 0) {
+      for (const cls of subject.classLevelSubclasses) {
         // Validate classLevel
-        const classLevel = await mongoose.model("ClassLevel").findById(cl.classLevel);
+        const classLevel = await mongoose.model("ClassLevel").findById(cls.classLevel);
         if (!classLevel) {
-          throw new Error(`ClassLevel with ID ${cl.classLevel} does not exist`);
+          throw new Error(`ClassLevel with ID ${cls.classLevel} does not exist`);
+        }
+        // Validate subclassLetter exists in classLevel.subclasses
+        const subclassExists = classLevel.subclasses.some(
+          (sub) => sub.letter === cls.subclassLetter
+        );
+        if (!subclassExists) {
+          throw new Error(
+            `Subclass ${cls.subclassLetter} does not exist in ClassLevel ${cls.classLevel}`
+          );
         }
         // Validate teachers if provided
-        if (cl.teachers && cl.teachers.length > 0) {
+        if (cls.teachers && cls.teachers.length > 0) {
           const validTeachers = await mongoose.model("Teacher").find({
-            _id: { $in: cl.teachers },
+            _id: { $in: cls.teachers },
           });
-          if (validTeachers.length !== cl.teachers.length) {
-            throw new Error(`One or more Teachers for ClassLevel ${cl.classLevel} are invalid`);
+          if (validTeachers.length !== cls.teachers.length) {
+            throw new Error(
+              `One or more Teachers for ClassLevel ${cls.classLevel} subclass ${cls.subclassLetter} are invalid`
+            );
           }
         }
       }
