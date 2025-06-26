@@ -6,11 +6,10 @@ const {
   createStudentPaymentController,
   getAllStudentPaymentsController,
   getStudentPaymentByIdController,
-  updateStudentPaymentController,
   deleteStudentPaymentController,
 } = require("../../../controllers/academic/schoolFees.controller");
 
-// GET: Fetch all student payment records
+// GET: Fetch all student payment records with pagination and filtering
 studentPaymentRouter
   .route("/student-payments")
   .get(getAllStudentPaymentsController);
@@ -19,7 +18,6 @@ studentPaymentRouter
 studentPaymentRouter
   .route("/student-payments/:id")
   .get(getStudentPaymentByIdController)
-  .patch(updateStudentPaymentController)
   .delete(deleteStudentPaymentController);
 
 // POST: Create a new student payment record

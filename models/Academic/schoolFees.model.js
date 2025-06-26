@@ -23,6 +23,11 @@ const schoolFeesSchema= new Schema(
       type: String,
       default: "",
     },
+    status:{
+      type: String,
+      enum:["success","failed"],
+      default: "success",
+    }
   },
   { _id: false }
 );
@@ -66,6 +71,11 @@ const studentPaymentSchema = new Schema(
     academicYear: {
       type: ObjectId,
       ref: "AcademicYear",
+      required: true,
+    },
+    program: {
+      type: String,
+      enum: ["Primary", "Secondary"],
       required: true,
     },
     termPayments: [termPaymentSchema],

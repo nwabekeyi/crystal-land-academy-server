@@ -6,7 +6,21 @@ const StudentPayment = require("../../models/Academic/schoolFees.model");
  * @returns {Object} - Created payment record
  */
 exports.createStudentPaymentService = async (data) => {
-  const studentPayment = new StudentPayment(data);
+  const { studentId, classLevelId, academicYear, termName, subclassLetter, amountPaid, method, reference, status } = data;
+
+  let studentPayment = await StudentPayment.findOne({ studentId, classLevelId, academicYear });
+  if (!studentPayment) {
+    studentPayment = new StudentPayment({ studentId, classLevelId, academicYear, termPayments: [] });
+  }
+
+  let termPayment = studentPayment.termPayments.find((term) => term.termName === termName && term.subclassLetter === subclassLetter);
+  if (!termPayment) {
+    termPayment = { termName, subclassLetter, payments: [] };
+    studentPayment.termPayments.push(termPayment);
+  }
+
+  termPayment.payments.push({ amountPaid, method, reference, status });
+
   return await studentPayment.save();
 };
 
@@ -14,8 +28,25 @@ exports.createStudentPaymentService = async (data) => {
  * Get all student payment records
  * @returns {Array} - List of payment records
  */
-exports.getAllStudentPaymentsService = async () => {
-  return await StudentPayment.find().populate("studentId classLevelId academicYear");
+exports.getAllStudentPaymentsService = async (filter = {}, skip = null, limit = null, sortBy = null, sortDirection = null, countOnly = false) => {
+  try {
+    if (countOnly) {
+      return await StudentPayment.countDocuments(filter); // Count total records
+    }
+
+    const sortOptions = {};
+    if (sortBy) {
+      sortOptions[sortBy] = sortDirection === "asc" ? 1 : -1;
+    }
+
+    return await StudentPayment.find(filter)
+      .populate("studentId classLevelId academicYear")
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(limit);
+  } catch (error) {
+    throw new Error("Failed to fetch student payment records");
+  }
 };
 
 /**
@@ -31,19 +62,6 @@ exports.getStudentPaymentByIdService = async (id) => {
   return studentPayment;
 };
 
-/**
- * Update a student payment record
- * @param {String} id - Payment record ID
- * @param {Object} data - Updated data
- * @returns {Object} - Updated payment record
- */
-exports.updateStudentPaymentService = async (id, data) => {
-  const updatedPayment = await StudentPayment.findByIdAndUpdate(id, data, { new: true, runValidators: true });
-  if (!updatedPayment) {
-    throw new Error("Student payment record not found");
-  }
-  return updatedPayment;
-};
 
 /**
  * Delete a student payment record

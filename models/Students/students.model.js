@@ -9,6 +9,7 @@ const guardianSchema = new mongoose.Schema({
 }, { _id: false });
 
 const classLevelSchema = new mongoose.Schema({
+  
   section: {
     type: String,
     enum: ["Primary", "Secondary"],

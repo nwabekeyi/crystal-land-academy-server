@@ -32,6 +32,7 @@ routeSync(app, "staff");
 routeSync(app, "academic");
 routeSync(app, "students");
 routeSync(app, "enquiry");
+routeSync(app, "feedback")
 
 // Serve static files from the frontend build
 app.use(express.static(path.join(__dirname, "../public/dist")));
