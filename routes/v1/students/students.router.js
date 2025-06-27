@@ -20,6 +20,7 @@ const {
   studentUpdateProfileController,
   adminUpdateStudentController,
   studentWriteExamController,
+  adminWithdrawStudentController
 } = require("../../../controllers/students/students.controller");
 
 // Create Student by Admin
@@ -69,5 +70,11 @@ studentsRouter
 studentsRouter
   .route("/students/:examId/exam-write")
   .post(isLoggedIn, isStudent, studentWriteExamController);
+
+
+  // Admin Withdraw Student
+studentsRouter
+.route("/admin/students/withdraw/:studentId")
+.patch(isLoggedIn, isAdmin, adminWithdrawStudentController);
 
 module.exports = studentsRouter;

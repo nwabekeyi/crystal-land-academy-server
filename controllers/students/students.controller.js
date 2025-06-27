@@ -8,6 +8,7 @@ const {
   studentUpdateProfileService,
   adminUpdateStudentService,
   studentWriteExamService,
+  adminWithdrawStudentService
 } = require("../../services/students/students.service");
 
 /**
@@ -112,6 +113,20 @@ exports.studentWriteExamController = async (req, res) => {
       req.params.examId,
       res
     );
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+
+/**
+ * @desc Admin Withdraw Student
+ * @route PATCH /api/v1/students/:studentId/withdraw/admin
+ * @access Private Admin only
+ */
+exports.adminWithdrawStudentController = async (req, res) => {
+  try {
+    await adminWithdrawStudentService(req.params.studentId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

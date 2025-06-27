@@ -425,7 +425,16 @@ exports.studentLoginService = async (data, res) => {
     const studentObj = student.toObject();
     delete studentObj.password;
 
-    const responseData = { student: studentObj, token: generateToken(student._id) };
+    // Set token to null if student is withdrawn, otherwise generate token
+    const responseData = {
+      student: studentObj,
+      token: student.isWithdrawn ? null : generateToken(student._id),
+    };
+
+    if (student.isWithdrawn) {
+      console.warn(`Student ${student.email} is withdrawn; returning null token`);
+    }
+
     return responseStatus(res, 200, "success", responseData);
   } catch (error) {
     return responseStatus(res, 500, "failed", "Error logging in: " + error.message);
@@ -652,5 +661,64 @@ exports.studentWriteExamService = async (data, studentId, examId, res) => {
     return responseStatus(res, 200, "success", "Answer submitted successfully");
   } catch (error) {
     return responseStatus(res, 500, "failed", "Error submitting exam: " + error.message);
+  }
+};
+
+
+/**
+ * Admin withdraw student service.
+ * @param {string} studentId - The ID of the student to withdraw.
+ * @param {Object} res - The Express response object.
+ * @returns {Object} - The response object indicating success or failure.
+ */
+exports.adminWithdrawStudentService = async (studentId, res) => {
+  try {
+    // Find the student
+    const student = await Student.findById(studentId);
+    if (!student) {
+      return responseStatus(res, 404, "failed", "Student not found");
+    }
+
+    // Check if student is already withdrawn
+    if (student.isWithdrawn) {
+      return responseStatus(res, 400, "failed", "Student is already withdrawn");
+    }
+
+    // Update student's isWithdrawn field
+    student.isWithdrawn = true;
+    await student.save();
+
+    // Optionally, remove student from ClassLevel
+    const classLevel = await ClassLevel.findById(student.classLevelId);
+    if (classLevel) {
+      classLevel.students = classLevel.students.filter(
+        (id) => !id.equals(studentId)
+      );
+      await classLevel.save();
+    }
+
+    // Optionally, remove student from AcademicYear
+    const currentAcademicYear = await AcademicYear.findOne({
+      isCurrent: true,
+    });
+    if (currentAcademicYear) {
+      currentAcademicYear.students = currentAcademicYear.students.filter(
+        (id) => !id.equals(studentId)
+      );
+      await currentAcademicYear.save();
+    }
+
+    // Fetch updated student data without password
+    const updatedStudent = await Student.findById(studentId)
+      .select("-password")
+      .populate("classLevelId")
+      .populate({
+        path: "currentClassLevel.academicYear.academicYearId",
+        select: "name _id",
+      });
+
+    return responseStatus(res, 200, "success", updatedStudent);
+  } catch (error) {
+    return responseStatus(res, 500, "failed", "Error withdrawing student: " + error.message);
   }
 };
