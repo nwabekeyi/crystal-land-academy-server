@@ -23,7 +23,7 @@ feedbackRouter
 
 // POST: Submit a new feedback record
 feedbackRouter
-  .route("/submit-feedback")
+  .route("/feedbacks")
   .post(loggedIn, submitFeedback);
 
 module.exports = feedbackRouter;

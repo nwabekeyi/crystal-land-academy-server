@@ -1,7 +1,6 @@
 const express = require("express");
 const studentPaymentRouter = express.Router();
 const loggedIn = require("../../../middlewares/isLoggedIn");
-// controllers
 const {
   createStudentPaymentController,
   getAllStudentPaymentsController,
@@ -9,20 +8,16 @@ const {
   deleteStudentPaymentController,
 } = require("../../../controllers/academic/schoolFees.controller");
 
-// GET: Fetch all student payment records with pagination and filtering
-studentPaymentRouter
-  .route("/student-payments")
-  .get(getAllStudentPaymentsController);
-
-// GET, PATCH, DELETE: Manage a single student payment record by ID
-studentPaymentRouter
-  .route("/student-payments/:id")
-  .get(getStudentPaymentByIdController)
-  .delete(deleteStudentPaymentController);
-
 // POST: Create a new student payment record
-studentPaymentRouter
-  .route("/create-student-payment")
-  .post(createStudentPaymentController);
+studentPaymentRouter.post("/payment",loggedIn, createStudentPaymentController);
+
+// GET: Fetch all student payment records
+studentPaymentRouter.get("/payment", getAllStudentPaymentsController);
+
+// GET: Fetch a single student payment record by ID
+studentPaymentRouter.get("/payment/:id", loggedIn, getStudentPaymentByIdController);
+
+// DELETE: Delete a student payment record by ID
+studentPaymentRouter.delete("/payment/:id", loggedIn, deleteStudentPaymentController);
 
 module.exports = studentPaymentRouter;

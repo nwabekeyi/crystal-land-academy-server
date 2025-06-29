@@ -43,8 +43,15 @@ const classLevelSchema = new mongoose.Schema({
     match: /^[A-Z]$/, // Single uppercase letter (e.g., "A", "B")
   },
   academicYear: {
-    type: String,
-    required: true, // e.g., "2024/2025"
+    name: {
+      type: String,
+      required: true, // e.g., "2024/2025"
+    },
+    academicYearId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "AcademicYear",
+      required: true,
+    },
   },
 }, { _id: false });
 
@@ -131,6 +138,10 @@ const studentSchema = new mongoose.Schema(
       select: false,
     },
     guardians: [guardianSchema],
+    classLevelId: {
+      type: mongoose.Schema.Types.ObjectId,
+      required: true,
+    },
     currentClassLevel: classLevelSchema,
     boardingStatus: {
       type: String,

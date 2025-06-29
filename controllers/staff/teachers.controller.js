@@ -1,4 +1,4 @@
-const responseStatus = require("../../handlers/responseStatus.handler");
+// controllers/staff/teacher.controller.js
 const {
   adminRegisterTeacherService,
   teacherLoginService,
@@ -7,84 +7,88 @@ const {
   updateTeacherProfileService,
   adminUpdateTeacherProfileService,
 } = require("../../services/staff/teachers.service");
+const responseStatus = require("../../handlers/responseStatus.handler");
 
 /**
- * @desc Admin create teacher
- * @route POST /api/v1/create-teacher
- * @access Private (admin)
- **/
-exports.createTeacherController = async (req, res) => {
+ * @desc Create Teacher
+ * @route POST /api/v1/teachers/register
+ * @access Private
+ */
+exports.adminRegisterTeacherController = async (req, res) => {
   try {
-    // Pass req.body, req.file (for profile picture), and admin ID from authenticated user
-    await adminRegisterTeacherService(req.body, req.file, res);
+    const result = await adminRegisterTeacherService(req.body, req.file, req.userAuth.id);
+    responseStatus(res, 201, "success", result);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
- * @desc Teacher login
- * @route POST /api/v1/teacher/login
+ * @desc Teacher Login
+ * @route POST /api/v1/teachers/login
  * @access Public
- **/
+ */
 exports.teacherLoginController = async (req, res) => {
   try {
-    await teacherLoginService(req.body, res);
+    const result = await teacherLoginService(req.body);
+    responseStatus(res, 200, "success", result);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
- * @desc Get all teachers
+ * @desc Get all Teachers
  * @route GET /api/v1/teachers
- * @access Private (admin)
- **/
+ * @access Private
+ */
 exports.getAllTeachersController = async (req, res) => {
   try {
-    await getAllTeachersService(res);
+    const teachers = await getAllTeachersService();
+    responseStatus(res, 200, "success", teachers);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
- * @desc Get teacher profile
- * @route GET /api/v1/teacher/profile/:teacherId
- * @access Private (teacher)
- **/
+ * @desc Get Teacher Profile
+ * @route GET /api/v1/teachers/:id
+ * @access Private
+ */
 exports.getTeacherProfileController = async (req, res) => {
   try {
-    await getTeacherProfileService(req.params.teacherId, res);
+    const teacher = await getTeacherProfileService(req.params.id);
+    responseStatus(res, 200, "success", teacher);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
- * @desc Update teacher profile
- * @route PATCH /api/v1/teacher/update-profile
- * @access Private (Teacher)
- **/
+ * @desc Update Teacher Profile (by teacher)
+ * @route PATCH /api/v1/teachers/profile
+ * @access Private
+ */
 exports.updateTeacherProfileController = async (req, res) => {
   try {
-    // Pass req.body, req.file (for profile picture), and teacher ID from authenticated user
-    await updateTeacherProfileService(req.body, req.file, req.userAuth.id, res);
+    const result = await updateTeacherProfileService(req.body, req.file, req.userAuth.id);
+    responseStatus(res, 200, "success", result);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
- * @desc Admin update teacher profile
- * @route PATCH /api/v1/teacher/:teacherId/update-profile
- * @access Private (Admin)
- **/
+ * @desc Update Teacher Profile (by admin)
+ * @route PATCH /api/v1/teachers/:id
+ * @access Private
+ */
 exports.adminUpdateTeacherProfileController = async (req, res) => {
   try {
-    // Pass req.body, req.file (for profile picture), and teacher ID from route params
-    await adminUpdateTeacherProfileService(req.body, req.file, req.params.teacherId, res);
+    const result = await adminUpdateTeacherProfileService(req.body, req.file, req.params.id);
+    responseStatus(res, 200, "success", result);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };

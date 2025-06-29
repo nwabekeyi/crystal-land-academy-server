@@ -6,25 +6,33 @@ const Teacher = require("../../models/Staff/teachers.model");
 const Admin = require("../../models/Staff/admin.model");
 const Subject = require("../../models/Academic/subject.model");
 const AcademicYear = require("../../models/Academic/academicYear.model");
+const ClassLevel = require("../../models/Academic/class.model");
 const generateToken = require("../../utils/tokenGenerator");
-const responseStatus = require("../../handlers/responseStatus.handler");
 const { deleteFromCloudinary } = require("../../middlewares/fileUpload");
+
+// Custom error class for service errors
+class ServiceError extends Error {
+  constructor(statusCode, message) {
+    super(message);
+    this.statusCode = statusCode;
+  }
+}
 
 /**
  * Service to create a new teacher
  * @param {Object} data - Teacher data including all required fields
  * @param {Object} file - The uploaded profile picture file (from Multer)
  * @param {string} adminId - ID of the admin creating the teacher
- * @param {Object} res - Express response object
- * @returns {Object} - Response object indicating success or failure
+ * @returns {Object} - Created teacher object
+ * @throws {ServiceError} - If validation fails or an error occurs
  */
-exports.adminRegisterTeacherService = async (data, file, res) => {
+exports.adminRegisterTeacherService = async (data, file, adminId) => {
   const {
     firstName,
     lastName,
     middleName,
     email,
-    password = "123456789", // Set default password
+    password = "123456789",
     gender,
     NIN,
     address,
@@ -34,71 +42,48 @@ exports.adminRegisterTeacherService = async (data, file, res) => {
     religion,
     bankAccountDetails,
     subject,
-    teachingAssignments,
+    classLevel,
+    subclassLetter,
     linkedInProfile,
   } = data;
 
   // Check if teacher email exists
   const teacherExists = await Teacher.findOne({ email });
   if (teacherExists) {
-    return responseStatus(res, 409, "failed", "Teacher already registered");
+    throw new ServiceError(409, "Teacher already registered");
   }
 
-  // Validate subject
-  const subjectExists = await Subject.findById(subject);
-  if (!subjectExists) {
-    return responseStatus(res, 404, "failed", "Subject not found");
+  // Validate subject if provided
+  let subjectDoc;
+  if (subject) {
+    subjectDoc = await Subject.findById(subject);
+    if (!subjectDoc) {
+      throw new ServiceError(404, "Subject not found");
+    }
+  }
+
+  // Validate classLevel and subclassLetter if provided
+  if (classLevel || subclassLetter) {
+    if (!classLevel || !subclassLetter) {
+      throw new ServiceError(400, "Both classLevel and subclassLetter are required if one is provided");
+    }
+    const classLevelDoc = await ClassLevel.findById(classLevel);
+    if (!classLevelDoc) {
+      throw new ServiceError(404, "ClassLevel not found");
+    }
+    if (!classLevelDoc.subclasses.some((sub) => sub.letter === subclassLetter)) {
+      throw new ServiceError(400, `Subclass ${subclassLetter} not found in ClassLevel`);
+    }
+    if (!subject) {
+      throw new ServiceError(400, "Subject is required when assigning classLevel and subclassLetter");
+    }
   }
 
   // Find current academic year
   const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
   if (!currentAcademicYear) {
-    return responseStatus(res, 400, "failed", "No current academic year set");
+    throw new ServiceError(400, "No current academic year set");
   }
-
-  // Validate teachingAssignments (mandatory)
-  if (!teachingAssignments) {
-    return responseStatus(res, 400, "failed", "Teaching assignments are required at registration");
-  }
-
-  let parsedAssignments;
-  try {
-    parsedAssignments = Array.isArray(teachingAssignments)
-      ? teachingAssignments
-      : JSON.parse(teachingAssignments);
-  } catch (error) {
-    return responseStatus(res, 400, "failed", "Invalid teaching assignments format");
-  }
-
-  if (!parsedAssignments.length) {
-    return responseStatus(res, 400, "failed", "At least one teaching assignment is required");
-  }
-
-  const validSections = ["Primary", "Secondary"];
-  const validClasses = [
-    "Kindergarten", "Reception", "Nursery 1", "Nursery 2",
-    "Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
-    "JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3",
-  ];
-
-  // Validate teaching assignments (uncommented for consistency with other services)
-  // for (const assignment of parsedAssignments) {
-  //   if (
-  //     !assignment.section ||
-  //     !validSections.includes(assignment.section) ||
-  //     !assignment.className ||
-  //     !validClasses.includes(assignment.className) ||
-  //     !Array.isArray(assignment.subclasses) ||
-  //     !assignment.subclasses.every((sub) => /^[A-Z]$/.test(sub))
-  //   ) {
-  //     return responseStatus(
-  //       res,
-  //       400,
-  //       "failed",
-  //       "Invalid teaching assignments data: Ensure valid section, className, and subclasses (single uppercase letters)"
-  //     );
-  //   }
-  // }
 
   // Validate bankAccountDetails
   if (
@@ -107,18 +92,18 @@ exports.adminRegisterTeacherService = async (data, file, res) => {
     !bankAccountDetails.accountNumber ||
     !bankAccountDetails.bank
   ) {
-    return responseStatus(res, 400, "failed", "Complete bank account details are required");
+    throw new ServiceError(400, "Complete bank account details are required");
   }
 
-  // Hash password (default or provided)
+  // Hash password
   const hashedPassword = await hashPassword(password);
 
   // Handle profile picture upload
   let profilePictureUrl = "";
   if (file) {
-    profilePictureUrl = file.path; // Cloudinary secure URL
+    profilePictureUrl = file.path;
   } else {
-    return responseStatus(res, 400, "failed", "Profile picture is required");
+    throw new ServiceError(400, "Profile picture is required");
   }
 
   // Create new teacher
@@ -138,7 +123,6 @@ exports.adminRegisterTeacherService = async (data, file, res) => {
       religion,
       bankAccountDetails,
       subject,
-      teachingAssignments: parsedAssignments,
       profilePictureUrl,
       linkedInProfile,
     });
@@ -147,12 +131,27 @@ exports.adminRegisterTeacherService = async (data, file, res) => {
     currentAcademicYear.teachers.push(newTeacher._id);
     await currentAcademicYear.save();
 
-    // Populate relevant fields for response
+    // Add teacher to ClassLevel.teachers if classLevel and subclassLetter provided
+    if (classLevel && subclassLetter) {
+      const classLevelDoc = await ClassLevel.findById(classLevel);
+      if (classLevelDoc) {
+        const teacherEntry = {
+          teacherId: newTeacher._id,
+          name: `${newTeacher.firstName} ${newTeacher.lastName}`,
+        };
+        if (!classLevelDoc.teachers.some((t) => t.teacherId.toString() === newTeacher._id.toString())) {
+          classLevelDoc.teachers.push(teacherEntry);
+          await classLevelDoc.save();
+        }
+      }
+    }
+
+    // Populate relevant fields
     const populatedTeacher = await Teacher.findById(newTeacher._id)
       .select("-password")
       .populate("subject");
 
-    return responseStatus(res, 201, "success", populatedTeacher);
+    return populatedTeacher;
   } catch (error) {
     if (file) {
       try {
@@ -161,82 +160,78 @@ exports.adminRegisterTeacherService = async (data, file, res) => {
         console.error("Failed to delete uploaded file:", err.message);
       }
     }
-    return responseStatus(res, 500, "failed", "Error creating teacher: " + error.message);
+    throw new ServiceError(500, "Error creating teacher: " + error.message);
   }
 };
 
 /**
  * Service for teacher login
  * @param {Object} data - Login credentials including email and password
- * @param {Object} res - Express response object
- * @returns {Object} - Response object with teacher details and token
+ * @returns {Object} - Teacher details and token
+ * @throws {ServiceError} - If login fails
  */
-exports.teacherLoginService = async (data, res) => {
-  const { email, password } = data;
+exports.teacherLoginService = async (data) => {
+  const { email,
+    password } = data;
 
-  // Find teacher with password
   try {
     const teacherFound = await Teacher.findOne({ email })
       .select("+password")
       .populate("subject");
     if (!teacherFound) {
-      return responseStatus(res, 401, "failed", "Invalid login credentials");
+      throw new ServiceError(401, "Invalid login credentials");
     }
 
-    // Compare password
     const isMatched = await isPassMatched(password, teacherFound.password);
     if (!isMatched) {
-      return responseStatus(res, 401, "failed", "Invalid login credentials");
+      throw new ServiceError(401, "Invalid login credentials");
     }
 
-    // Remove password from response
     const teacherObj = teacherFound.toObject();
     delete teacherObj.password;
 
-    const response = {
+    return {
       teacher: teacherObj,
       token: generateToken(teacherFound._id),
     };
-
-    return responseStatus(res, 200, "success", response);
   } catch (error) {
-    return responseStatus(res, 500, "failed", "Error logging in: " + error.message);
+    throw new ServiceError(500, "Error logging in: " + error.message);
   }
 };
 
 /**
  * Service to get all teachers
- * @param {Object} res - Express response object
- * @returns {Object} - Response object with array of all teacher objects
+ * @returns {Array} - Array of all teacher objects
+ * @throws {ServiceError} - If fetching fails
  */
-exports.getAllTeachersService = async (res) => {
+exports.getAllTeachersService = async () => {
   try {
     const teachers = await Teacher.find()
       .select("-password")
       .populate("subject");
-    return responseStatus(res, 200, "success", teachers);
+    return teachers;
   } catch (error) {
-    return responseStatus(res, 500, "failed", "Error fetching teachers: " + error.message);
+    throw new ServiceError(500, "Error fetching teachers: " + error.message);
   }
 };
 
 /**
  * Service to get teacher profile by ID
  * @param {string} teacherId - ID of the teacher
- * @param {Object} res - Express response object
- * @returns {Object} - Response object with teacher profile
+ * @returns {Object} - Teacher profile
+ * @throws {ServiceError} - If teacher not found or error occurs
  */
-exports.getTeacherProfileService = async (teacherId, res) => {
+exports.getTeacherProfileService = async (teacherId) => {
   try {
     const teacher = await Teacher.findById(teacherId)
       .select("-password -createdAt -updatedAt")
       .populate("subject");
     if (!teacher) {
-      return responseStatus(res, 404, "failed", "Teacher not found");
+      throw new ServiceError(404, "Teacher not found");
     }
-    return responseStatus(res, 200, "success", teacher);
+    return teacher;
   } catch (error) {
-    return responseStatus(res, 500, "failed", "Error fetching teacher profile: " + error.message);
+    throw new ServiceError(500, "Error fetching teacher profile: " + error.message);
   }
 };
 
@@ -245,10 +240,10 @@ exports.getTeacherProfileService = async (teacherId, res) => {
  * @param {Object} data - Updated data for the teacher
  * @param {Object} file - The uploaded profile picture file (from Multer)
  * @param {string} teacherId - ID of the teacher
- * @param {Object} res - Express response object
- * @returns {Object} - Response object with updated teacher details and token
+ * @returns {Object} - Updated teacher details and token
+ * @throws {ServiceError} - If update fails
  */
-exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
+exports.updateTeacherProfileService = async (data, file, teacherId) => {
   const {
     firstName,
     lastName,
@@ -266,37 +261,32 @@ exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
     linkedInProfile,
   } = data;
 
-  // Check if teacher exists
   const teacherExist = await Teacher.findById(teacherId);
   if (!teacherExist) {
-    return responseStatus(res, 404, "failed", "Teacher not found");
+    throw new ServiceError(404, "Teacher not found");
   }
 
-  // Check if email is taken by another teacher
   if (email && email !== teacherExist.email) {
     const emailExist = await Teacher.findOne({
       email,
       _id: { $ne: teacherId },
     });
     if (emailExist) {
-      return responseStatus(res, 409, "failed", "Email already in use");
+      throw new ServiceError(409, "Email already in use");
     }
   }
 
-  // Validate bankAccountDetails if provided
   if (
     bankAccountDetails &&
     (!bankAccountDetails.accountName ||
       !bankAccountDetails.accountNumber ||
       !bankAccountDetails.bank)
   ) {
-    return responseStatus(res, 400, "failed", "Complete bank account details are required");
+    throw new ServiceError(400, "Complete bank account details are required");
   }
 
-  // Hash password if provided
   const hashedPassword = password ? await hashPassword(password) : undefined;
 
-  // Handle profile picture upload
   let profilePictureUrl = teacherExist.profilePictureUrl;
   if (file) {
     if (profilePictureUrl) {
@@ -306,10 +296,9 @@ exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
         console.error("Failed to delete old profile picture:", err.message);
       }
     }
-    profilePictureUrl = file.path; // New Cloudinary secure URL
+    profilePictureUrl = file.path;
   }
 
-  // Build update object
   const updateData = {
     firstName,
     lastName,
@@ -328,12 +317,10 @@ exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
     ...(hashedPassword && { password: hashedPassword }),
   };
 
-  // Remove undefined keys
   Object.keys(updateData).forEach(
     (key) => updateData[key] === undefined && delete updateData[key]
   );
 
-  // Update teacher
   try {
     const updatedTeacher = await Teacher.findByIdAndUpdate(
       teacherId,
@@ -343,10 +330,10 @@ exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
       .select("-password")
       .populate("subject");
 
-    return responseStatus(res, 200, "success", {
+    return {
       teacher: updatedTeacher,
       token: generateToken(updatedTeacher._id),
-    });
+    };
   } catch (error) {
     if (file) {
       try {
@@ -355,7 +342,7 @@ exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
         console.error("Failed to delete uploaded file:", err.message);
       }
     }
-    return responseStatus(res, 500, "failed", "Error updating teacher: " + error.message);
+    throw new ServiceError(500, "Error updating teacher: " + error.message);
   }
 };
 
@@ -364,10 +351,10 @@ exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
  * @param {Object} data - Updated data for the teacher
  * @param {Object} file - The uploaded profile picture file (from Multer)
  * @param {string} teacherId - ID of the teacher
- * @param {Object} res - Express response object
- * @returns {Object} - Response object with updated teacher details
+ * @returns {Object} - Updated teacher details
+ * @throws {ServiceError} - If update fails
  */
-exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) => {
+exports.adminUpdateTeacherProfileService = async (data, file, teacherId) => {
   const {
     firstName,
     lastName,
@@ -382,86 +369,63 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
     religion,
     bankAccountDetails,
     subject,
-    teachingAssignments,
+    classLevel,
+    subclassLetter,
     isWithdrawn,
     isSuspended,
     applicationStatus,
     linkedInProfile,
   } = data;
 
-  // Check if teacher exists
   const teacherExist = await Teacher.findById(teacherId);
   if (!teacherExist) {
-    return responseStatus(res, 404, "failed", "Teacher not found");
+    throw new ServiceError(404, "Teacher not found");
   }
 
-  // Check if email is taken by another teacher
   if (email && email !== teacherExist.email) {
     const emailExist = await Teacher.findOne({
       email,
       _id: { $ne: teacherId },
     });
     if (emailExist) {
-      return responseStatus(res, 409, "failed", "Email already in use");
+      throw new ServiceError(409, "Email already in use");
     }
   }
 
-  // Validate subject if provided
+  let subjectDoc;
   if (subject) {
-    const subjectExists = await Subject.findById(subject);
-    if (!subjectExists) {
-      return responseStatus(res, 404, "failed", "Subject not found");
+    subjectDoc = await Subject.findById(subject);
+    if (!subjectDoc) {
+      throw new ServiceError(404, "Subject not found");
     }
   }
 
-  // Validate teachingAssignments if provided
-  let parsedAssignments;
-  if (teachingAssignments) {
-    try {
-      parsedAssignments = Array.isArray(teachingAssignments)
-        ? teachingAssignments
-        : JSON.parse(teachingAssignments);
-      if (!parsedAssignments.length) {
-        return responseStatus(res, 400, "failed", "At least one teaching assignment is required");
-      }
-      for (const assignment of parsedAssignments) {
-        if (
-          !assignment.section ||
-          !validSections.includes(assignment.section) ||
-          !assignment.className ||
-          !validClasses.includes(assignment.className) ||
-          !Array.isArray(assignment.subclasses) ||
-          !assignment.subclasses.every((sub) => /^[A-Z]$/.test(sub))
-        ) {
-          return responseStatus(
-            res,
-            400,
-            "failed",
-            "Invalid teaching assignments data: Ensure valid section, className, and subclasses"
-          );
-        }
-      }
-    } catch (error) {
-      return responseStatus(res, 400, "failed", "Invalid teaching assignments format");
+  if (classLevel || subclassLetter) {
+    if (!classLevel || !subclassLetter || !subject) {
+      throw new ServiceError(400, "Subject, classLevel, and subclassLetter are required if one is provided");
+    }
+    const classLevelDoc = await ClassLevel.findById(classLevel);
+    if (!classLevelDoc) {
+      throw new ServiceError(404, "ClassLevel not found");
+    }
+    if (!classLevelDoc.subclasses.some((sub) => sub.letter === subclassLetter)) {
+      throw new ServiceError(400, `Subclass ${subclassLetter} not found in ClassLevel`);
     }
   }
 
-  // Validate bankAccountDetails if provided
   if (
     bankAccountDetails &&
     (!bankAccountDetails.accountName ||
       !bankAccountDetails.accountNumber ||
       !bankAccountDetails.bank)
   ) {
-    return responseStatus(res, 400, "failed", "Complete bank account details are required");
+    throw new ServiceError(400, "Complete bank account details are required");
   }
 
-  // Check if teacher is withdrawn
   if (teacherExist.isWithdrawn && isWithdrawn !== false) {
-    return responseStatus(res, 403, "failed", "Action denied, teacher is withdrawn");
+    throw new ServiceError(403, "Action denied, teacher is withdrawn");
   }
 
-  // Handle profile picture upload
   let profilePictureUrl = teacherExist.profilePictureUrl;
   if (file) {
     if (profilePictureUrl) {
@@ -471,10 +435,9 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
         console.error("Failed to delete old profile picture:", err.message);
       }
     }
-    profilePictureUrl = file.path; // New Cloudinary secure URL
+    profilePictureUrl = file.path;
   }
 
-  // Build update object
   const updateData = {
     firstName,
     lastName,
@@ -489,7 +452,6 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
     religion,
     bankAccountDetails,
     subject,
-    teachingAssignments: parsedAssignments,
     isWithdrawn,
     isSuspended,
     applicationStatus,
@@ -497,12 +459,10 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
     linkedInProfile,
   };
 
-  // Remove undefined keys
   Object.keys(updateData).forEach(
     (key) => updateData[key] === undefined && delete updateData[key]
   );
 
-  // Update teacher
   try {
     const updatedTeacher = await Teacher.findByIdAndUpdate(
       teacherId,
@@ -512,7 +472,21 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
       .select("-password")
       .populate("subject");
 
-    return responseStatus(res, 200, "success", updatedTeacher);
+    if (classLevel && subclassLetter) {
+      const classLevelDoc = await ClassLevel.findById(classLevel);
+      if (classLevelDoc) {
+        const teacherEntry = {
+          teacherId: updatedTeacher._id,
+          name: `${updatedTeacher.firstName} ${updatedTeacher.lastName}`,
+        };
+        if (!classLevelDoc.teachers.some((t) => t.teacherId.toString() === updatedTeacher._id.toString())) {
+          classLevelDoc.teachers.push(teacherEntry);
+          await classLevelDoc.save();
+        }
+      }
+    }
+
+    return updatedTeacher;
   } catch (error) {
     if (file) {
       try {
@@ -521,6 +495,6 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
         console.error("Failed to delete uploaded file:", err.message);
       }
     }
-    return responseStatus(res, 500, "failed", "Error updating teacher: " + error.message);
+    throw new ServiceError(500, "Error updating teacher: " + error.message);
   }
 };

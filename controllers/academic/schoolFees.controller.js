@@ -1,121 +1,97 @@
 const responseStatus = require("../../handlers/responseStatus.handler");
-const {
-  createStudentPaymentService,
-  getAllStudentPaymentsService,
-  getStudentPaymentByIdService,
-  deleteStudentPaymentService,
-} = require("../../services/academic/schoolFees.service");
+const { createStudentPaymentService, getAllStudentPaymentsService, getStudentPaymentByIdService, deleteStudentPaymentService } = require("../../services/academic/schoolFees.service");
 
 /**
- * @desc Create a new payment record
- * @route POST /api/v1/student-payments
- * @access Private
+ * Create a new student payment record
  */
 exports.createStudentPaymentController = async (req, res) => {
   try {
-    const { studentId, classLevelId, academicYear, program, termPayments } = req.body;
+    console.log("Incoming request body:", req.body);
 
-    // Basic field validation
-    if (!studentId || !classLevelId || !academicYear || !program || !termPayments?.length) {
-      return responseStatus(res, 400, "error", "Missing required fields");
-    }
-
-    // Deep validation of termPayments
-    for (const term of termPayments) {
-      if (!term.termName || !term.subclassLetter || !term.payments?.length) {
-        return responseStatus(res, 400, "error", "Each term must have termName, subclassLetter, and at least one payment");
-      }
-
-      for (const payment of term.payments) {
-        if (
-          payment.amountPaid == null || // allow 0, disallow undefined/null
-          !payment.method ||
-          !payment.reference ||
-          !payment.status
-        ) {
-          return responseStatus(res, 400, "error", "Each payment must include amountPaid, method, reference, and status");
-        }
-      }
-    }
-
-    // Create or update the payment record using service
     const studentPayment = await createStudentPaymentService(req.body);
 
-    responseStatus(res, 201, "success", studentPayment);
+    return res.status(201).json({
+      status: "success",
+      message: "Student payment record created successfully",
+      data: studentPayment,
+    });
   } catch (error) {
-    console.error(error);
-    responseStatus(res, 400, "error", error.message);
+    console.error("Error in createStudentPaymentController:", error);
+    return res.status(400).json({
+      status: "error",
+      message: error.message || "Failed to create student payment record",
+    });
   }
 };
 
-
 /**
- * @desc Get all student payment records with pagination and filtering
- * @route GET /api/v1/student-payments
- * @access Private
+ * Get all student payment records
  */
 exports.getAllStudentPaymentsController = async (req, res) => {
   try {
-    const { page = 1, limit = 10, sortBy = "datePaid", sortDirection = "asc", name, classLevelId, academicYear } = req.query;
+    const { page = 1, limit = 10, sortBy = "createdAt", sortDirection = "desc", studentId } = req.query;
 
-    // Build filter object for filtering
-    const filter = {};
-    if (name) {
-      filter["studentId.name"] = { $regex: name, $options: "i" }; // Case-insensitive search
-    }
-    if (classLevelId) {
-      filter.classLevelId = classLevelId;
-    }
-    if (academicYear) {
-      filter.academicYear = academicYear;
-    }
-
-    // Pagination logic
     const skip = (page - 1) * limit;
+    const filter = studentId ? { studentId } : {}; // Filter by studentId if provided
 
-    // Fetch records with filtering, pagination, and sorting
-    const paymentRecords = await getAllStudentPaymentsService(filter, skip, limit, sortBy, sortDirection);
+    const payments = await getAllStudentPaymentsService(filter, skip, parseInt(limit), sortBy, sortDirection);
 
-    // Count total records for pagination metadata
-    const totalRecords = await getAllStudentPaymentsService(filter, null, null, null, null, true); // Count only
-
-    responseStatus(res, 200, "success", {
-      data: paymentRecords,
-      pagination: {
-        currentPage: parseInt(page),
-        totalPages: Math.ceil(totalRecords / limit),
-        totalRecords,
-      },
+    return res.status(200).json({
+      status: "success",
+      message: "Student payment records fetched successfully",
+      data: payments,
     });
   } catch (error) {
-    responseStatus(res, 500, "error", error.message);
+    console.error("Error in getAllStudentPaymentsController:", error);
+    return res.status(400).json({
+      status: "error",
+      message: error.message || "Failed to fetch student payment records",
+    });
   }
 };
 
 /**
- * @desc Get a single student payment record by ID
- * @route GET /api/v1/student-payments/:id
- * @access Private
+ * Get a single student payment record by ID
  */
 exports.getStudentPaymentByIdController = async (req, res) => {
   try {
-    const paymentRecord = await getStudentPaymentByIdService(req.params.id);
-    responseStatus(res, 200, "success", paymentRecord);
+    const { id } = req.params;
+
+    const payment = await getStudentPaymentByIdService(id);
+
+    return res.status(200).json({
+      status: "success",
+      message: "Student payment record fetched successfully",
+      data: payment,
+    });
   } catch (error) {
-    responseStatus(res, 404, "error", error.message);
+    console.error("Error in getStudentPaymentByIdController:", error);
+    return res.status(404).json({
+      status: "error",
+      message: error.message || "Student payment record not found",
+    });
   }
 };
 
 /**
- * @desc Delete a student payment record
- * @route DELETE /api/v1/student-payments/:id
- * @access Private
+ * Delete a student payment record
  */
 exports.deleteStudentPaymentController = async (req, res) => {
   try {
-    const deletedPayment = await deleteStudentPaymentService(req.params.id);
-    responseStatus(res, 200, "success", deletedPayment);
+    const { id } = req.params;
+
+    const deletedPayment = await deleteStudentPaymentService(id);
+
+    return res.status(200).json({
+      status: "success",
+      message: "Student payment record deleted successfully",
+      data: deletedPayment,
+    });
   } catch (error) {
-    responseStatus(res, 404, "error", error.message);
+    console.error("Error in deleteStudentPaymentController:", error);
+    return res.status(404).json({
+      status: "error",
+      message: error.message || "Failed to delete student payment record",
+    });
   }
 };

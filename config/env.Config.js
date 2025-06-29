@@ -9,6 +9,11 @@ const jwt_secret_key = process.env.JWT_SECRET_KEY;
 const cloudinary_name = process.env.CLOUDINARY_CLOUD_NAME;
 const cloudinary_key = process.env.CLOUDINARY_API_KEY;
 const cloudinary_secret = process.env.CLOUDINARY_API_SECRET;
+const emailKey = process.env.SENDGRID_API_KEY;
+const senderEmail = process.env.SENDER_EMAIL;
+const prodUrl = process.env.PROD_URL;
+
+
 
 const verifyEnv = () => {
   if (!db || !jwt_secret_key || !cloudinary_name || !cloudinary_key || !cloudinary_secret) {
@@ -23,5 +28,8 @@ module.exports = {
   cloudinary_name,
   cloudinary_key,
   cloudinary_secret,
-  verifyEnv
+  verifyEnv,
+  emailKey,
+  senderEmail,
+  prodUrl
 };

@@ -73,7 +73,7 @@ const studentPaymentSchema = new Schema(
       ref: "AcademicYear",
       required: true,
     },
-    program: {
+    section: {
       type: String,
       enum: ["Primary", "Secondary"],
       required: true,
@@ -87,6 +87,11 @@ const studentPaymentSchema = new Schema(
   }
 );
 
+
+studentPaymentSchema.pre('validate', function (next) {
+  console.log('Validating student payment:', this);
+  next();
+});
 // Virtual: total paid across all terms
 studentPaymentSchema.virtual("totalAmountPaid").get(function () {
   return this.termPayments.reduce(

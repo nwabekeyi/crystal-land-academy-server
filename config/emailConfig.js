@@ -1,12 +1,46 @@
-const nodemailer = require('nodemailer');
-require('dotenv').config();
+// emailConfig.js
+const sgMail = require('@sendgrid/mail');
+const { emailKey, senderEmail } = require('./env.Config');
 
-const transporter = nodemailer.createTransport({
-  service: 'gmail',
-  auth: {
-    user: process.env.GMAIL_USER,
-    pass: process.env.GMAIL_PASS,
-  },
-});
+sgMail.setApiKey(emailKey);
 
-module.exports = transporter;
+/**
+ * Send an email using SendGrid Template
+ * @param {Object} options
+ * @param {string} options.to - Recipient email
+ * @param {string} options.templateId - SendGrid dynamic template ID
+ * @param {object} options.dynamicTemplateData - Data for template
+ * @param {string} [options.subject] - Email subject (optional, falls back to template default)
+ */
+const sendEmail = async ({ to, templateId, dynamicTemplateData, subject }) => {
+  const msg = {
+    to,
+    from: {
+      email: senderEmail,
+      name: 'Crystalland academy', // Use provided senderName or default to 'Crystal Land Academy'
+    },
+    templateId,
+    dynamicTemplateData: {
+      ...dynamicTemplateData,
+      year: new Date().getFullYear(), // Add current year
+      unsubscribe: 'https://www.crystallandacademy.com', // Unsubscribe link
+      unsubscribe_preferences: 'https://www.crystallandacademy.com', // Preferences link
+    },
+  };
+
+  // Only add subject if provided, allowing template default if omitted
+  if (subject) {
+    msg.subject = subject;
+  }
+
+  try {
+    const response = await sgMail.send(msg);
+    console.log(`✅ Email sent: ${response[0].statusCode}`);
+    return response;
+  } catch (error) {
+    console.error('❌ SendGrid Error:', error.response?.body || error.message);
+    throw new Error('Failed to send email');
+  }
+};
+
+module.exports = { sendEmail };

@@ -1,80 +1,79 @@
-const responseStatus = require("../../handlers/responseStatus.handler");
+// controllers/academic/subject.controller.js
 const {
   createSubjectService,
   getAllSubjectsService,
   getSubjectsService,
-  deleteSubjectService,
   updateSubjectService,
+  deleteSubjectService,
 } = require("../../services/academic/subject.service");
+const responseStatus = require("../../handlers/responseStatus.handler");
 
 /**
  * @desc Create Subject
- * @route POST /api/v1/create-subject/:programId
+ * @route POST /api/v1/subjects/create
  * @access Private
- **/
+ */
 exports.createSubjectController = async (req, res) => {
   try {
-    await createSubjectService(
-      req.body,
-      req.params.programId,
-      req.userAuth.id,
-      res
-    );
+    const result = await createSubjectService(req.body);
+    responseStatus(res, 201, "success", result);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
  * @desc Get all Subjects
- * @route GET /api/v1/subject
+ * @route GET /api/v1/subjects
  * @access Private
- **/
+ */
 exports.getSubjectsController = async (req, res) => {
   try {
-    await getAllSubjectsService(res);
+    const subjects = await getAllSubjectsService();
+    responseStatus(res, 200, "success", subjects);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
  * @desc Get single Subject
- * @route GET /api/v1/subject/:id
+ * @route GET /api/v1/subjects/:id
  * @access Private
- **/
+ */
 exports.getSubjectController = async (req, res) => {
   try {
-    const result = await getSubjectsService(req.params.id);
-    responseStatus(res, 200, "success", result);
+    const subject = await getSubjectsService(req.params.id);
+    responseStatus(res, 200, "success", subject);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
  * @desc Update Subject
- * @route Patch /api/v1/subject/:id
+ * @route PATCH /api/v1/subjects/:id
  * @access Private
- **/
+ */
 exports.updateSubjectController = async (req, res) => {
   try {
-    await updateSubjectService(req.body, req.params.id, req.userAuth.id, res);
+    const result = await updateSubjectService(req.body, req.params.id);
+    responseStatus(res, 200, "success", result);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
 
 /**
  * @desc Delete Subject
- * @route Delete /api/v1/subject/:id
+ * @route DELETE /api/v1/subjects/:id
  * @access Private
- **/
+ */
 exports.deleteSubjectController = async (req, res) => {
   try {
     const result = await deleteSubjectService(req.params.id);
     responseStatus(res, 200, "success", result);
   } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
 };
