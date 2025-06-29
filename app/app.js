@@ -32,6 +32,7 @@ routeSync(app, "staff");
 routeSync(app, "academic");
 routeSync(app, "students");
 routeSync(app, "enquiry");
+routeSync(app, "feedback")
 routeSync(app, "password");
 routeSync(app, "registrationCode");
 routeSync(app, "announcement");

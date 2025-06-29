@@ -3,7 +3,7 @@ const { Schema, model } = mongoose;
 const { ObjectId } = Schema;
 
 // Individual part payment (e.g., split fees)
-const paymentInstanceSchema = new Schema(
+const schoolFeesSchema= new Schema(
   {
     amountPaid: {
       type: Number,
@@ -23,6 +23,11 @@ const paymentInstanceSchema = new Schema(
       type: String,
       default: "",
     },
+    status:{
+      type: String,
+      enum:["success","failed"],
+      default: "success",
+    }
   },
   { _id: false }
 );
@@ -40,7 +45,7 @@ const termPaymentSchema = new Schema(
       required: true,
       match: /^[A-Z]$/, // matches subclass like 'A', 'B', etc.
     },
-    payments: [paymentInstanceSchema],
+    payments: [schoolFeesSchema],
   },
   { _id: false, toJSON: { virtuals: true }, toObject: { virtuals: true } }
 );
@@ -68,6 +73,11 @@ const studentPaymentSchema = new Schema(
       ref: "AcademicYear",
       required: true,
     },
+    section: {
+      type: String,
+      enum: ["Primary", "Secondary"],
+      required: true,
+    },
     termPayments: [termPaymentSchema],
   },
   {
@@ -77,6 +87,11 @@ const studentPaymentSchema = new Schema(
   }
 );
 
+
+studentPaymentSchema.pre('validate', function (next) {
+  console.log('Validating student payment:', this);
+  next();
+});
 // Virtual: total paid across all terms
 studentPaymentSchema.virtual("totalAmountPaid").get(function () {
   return this.termPayments.reduce(
