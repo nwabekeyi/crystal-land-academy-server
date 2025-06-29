@@ -7,7 +7,7 @@ const { verifyEnv } = require("../config/env.Config");
 require("../config/dbConnect");
 
 // Import the cron job
-const updateCurrentTerm = require("../cronJobs/updateCurrentTerm");
+const cronJobs = require("../cronJobs");
 
 // Verify all environment variables
 verifyEnv();
@@ -34,7 +34,7 @@ routeSync(app, "students");
 routeSync(app, "enquiry");
 routeSync(app, "password");
 routeSync(app, "registrationCode");
-
+routeSync(app, "announcement");
 
 
 // Serve static files from the frontend build
@@ -51,6 +51,6 @@ app.all("*", (req, res) => {
 });
 
 // Start the cron job
-updateCurrentTerm();
+cronJobs();
 
 module.exports = app;

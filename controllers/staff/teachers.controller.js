@@ -6,6 +6,7 @@ const {
   getTeacherProfileService,
   updateTeacherProfileService,
   adminUpdateTeacherProfileService,
+  getAssignedClassesService,
 } = require("../../services/staff/teachers.service");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
@@ -88,6 +89,20 @@ exports.adminUpdateTeacherProfileController = async (req, res) => {
   try {
     const result = await adminUpdateTeacherProfileService(req.body, req.file, req.params.id);
     responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Get Assigned Classes for a Teacher
+ * @route GET /api/v1/class-levels/assigned
+ * @access Private
+ */
+exports.getAssignedClassesController = async (req, res) => {
+  try {
+    const classes = await getAssignedClassesService(req.userAuth.id);
+    responseStatus(res, 200, "success", classes);
   } catch (error) {
     responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
