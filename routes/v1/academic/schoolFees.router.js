@@ -15,7 +15,7 @@ studentPaymentRouter.post("/payment",loggedIn, createStudentPaymentController);
 studentPaymentRouter.get("/payment", getAllStudentPaymentsController);
 
 // GET: Fetch a single student payment record by ID
-studentPaymentRouter.get("/payment/:id", loggedIn, getStudentPaymentByIdController);
+studentPaymentRouter.get("/payment/:id", getStudentPaymentByIdController);
 
 // DELETE: Delete a student payment record by ID
 studentPaymentRouter.delete("/payment/:id", loggedIn, deleteStudentPaymentController);
