@@ -1,3 +1,4 @@
+// services/academicTerm.service.js
 const AcademicTerm = require("../../models/Academic/academicTerm.model");
 const AcademicYear = require("../../models/Academic/academicYear.model");
 const Admin = require("../../models/Staff/admin.model");
@@ -8,21 +9,30 @@ const doDateRangesIntersect = (start1, end1, start2, end2) => {
   return start1 <= end2 && start2 <= end1;
 };
 
+// Helper function to validate isCurrent term date constraints
+const validateCurrentTermDates = (startDate, endDate, termName, res) => {
+  const now = new Date();
+  const oneMonthFromNow = new Date();
+  oneMonthFromNow.setMonth(now.getMonth() + 1);
+
+  const start = new Date(startDate);
+  const end = new Date(endDate);
+
+  // Check if start date is more than one month ahead
+  if (start > oneMonthFromNow) {
+    return responseStatus(res, 400, "failed", `Term ${termName} cannot be current: start date is more than one month in the future`);
+  }
+
+  // Check if end date is in the past
+  if (end < now) {
+    return responseStatus(res, 400, "failed", `Term ${termName} cannot be current: end date is in the past`);
+  }
+
+  return null; // Valid
+};
+
 /**
  * Create academic term service.
- *
- * @param {Object} data - The data containing information about the academic term.
- * @param {Object[]} data.terms - Array of term objects (1st, 2nd, 3rd Term).
- * @param {string} data.terms[].name - Name of the term (1st Term, 2nd Term, 3rd Term).
- * @param {string} data.terms[].description - Description of the term.
- * @param {string} data.terms[].duration - Duration of the term.
- * @param {Date} data.terms[].startDate - Start date of the term.
- * @param {Date} data.terms[].endDate - End date of the term.
- * @param {boolean} data.terms[].isCurrent - Whether the term is current.
- * @param {string} data.academicYearId - The ID of the academic year.
- * @param {string} userId - The ID of the user creating the academic term.
- * @param {Object} res - The response object (for responseStatus).
- * @returns {Object} - The response object indicating success or failure.
  */
 exports.createAcademicTermService = async (data, userId, res) => {
   const { terms, academicYearId } = data;
@@ -38,7 +48,7 @@ exports.createAcademicTermService = async (data, userId, res) => {
     return responseStatus(res, 400, "failed", "Exactly three terms (1st Term, 2nd Term, 3rd Term) are required");
   }
 
-  // Validate term fields
+  // Validate term fields and isCurrent date constraints
   for (const term of terms) {
     if (!term.description || !term.duration || !term.startDate || !term.endDate) {
       return responseStatus(res, 400, "failed", "All term fields (description, duration, startDate, endDate) are required");
@@ -46,8 +56,11 @@ exports.createAcademicTermService = async (data, userId, res) => {
     if (new Date(term.startDate) >= new Date(term.endDate)) {
       return responseStatus(res, 400, "failed", `Term ${term.name} start date must be before end date`);
     }
+    if (term.isCurrent) {
+      const validationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
+      if (validationError) return validationError;
+    }
   }
-
 
   // Validate no date intersection within terms
   for (let i = 0; i < terms.length; i++) {
@@ -90,6 +103,20 @@ exports.createAcademicTermService = async (data, userId, res) => {
     }
   }
 
+  // Ensure only one term is marked as current
+  const currentTermCount = terms.filter((term) => term.isCurrent).length;
+  if (currentTermCount > 1) {
+    return responseStatus(res, 400, "failed", "Only one term can be marked as current");
+  }
+
+  // If a term is marked as current, update other terms in the academic year to isCurrent: false
+  if (currentTermCount === 1) {
+    await AcademicTerm.updateMany(
+      { academicYear: academicYearId, "terms.isCurrent": true },
+      { $set: { "terms.$[].isCurrent": false } }
+    );
+  }
+
   // Create the academic term
   const academicTermCreated = await AcademicTerm.create({
     academicYear: academicYearId,
@@ -100,60 +127,11 @@ exports.createAcademicTermService = async (data, userId, res) => {
   });
 
   // The pre-save hook in AcademicTerm schema adds the term to AcademicYear.academicTerms
-
   return responseStatus(res, 200, "success", academicTermCreated);
 };
 
 /**
- * Get all academic terms service.
- *
- * @param {Object} res - The response object (for responseStatus).
- * @returns {Object} - The response object with an array of all academic terms.
- */
-exports.getAcademicTermsService = async (res) => {
-  try {
-    const academicTerms = await AcademicTerm.find().populate("academicYear createdBy");
-    return responseStatus(res, 200, "success", academicTerms);
-  } catch (error) {
-    return responseStatus(res, 500, "failed", "Error fetching academic terms: " + error.message);
-  }
-};
-
-/**
- * Get academic term by ID service.
- *
- * @param {string} id - The ID of the academic term.
- * @param {Object} res - The response object (for responseStatus).
- * @returns {Object} - The response object with the academic term.
- */
-exports.getAcademicTermService = async (id, res) => {
-  try {
-    const academicTerm = await AcademicTerm.findById(id).populate("academicYear createdBy");
-    if (!academicTerm) {
-      return responseStatus(res, 404, "failed", "Academic Term not found");
-    }
-    return responseStatus(res, 200, "success", academicTerm);
-  } catch (error) {
-    return responseStatus(res, 500, "failed", "Error fetching academic term: " + error.message);
-  }
-};
-
-/**
  * Update academic term service.
- *
- * @param {Object} data - The data containing updated information about the academic term.
- * @param {Object[]} data.terms - Updated array of term objects.
- * @param {string} data.terms[].name - Name of the term (1st Term, 2nd Term, 3rd Term).
- * @param {string} data.terms[].description - Description of the term.
- * @param {string} data.terms[].duration - Duration of the term.
- * @param {Date} data.terms[].startDate - Start date of the term.
- * @param {Date} data.terms[].endDate - End date of the term.
- * @param {boolean} data.terms[].isCurrent - Whether the term is current.
- * @param {string} data.academicYearId - The updated Academic Year ID.
- * @param {string} academicId - The ID of the academic term to be updated.
- * @param {string} userId - The ID of the user updating the academic term.
- * @param {Object} res - The response object (for responseStatus).
- * @returns {Object} - The response object indicating success or failure.
  */
 exports.updateAcademicTermService = async (data, academicId, userId, res) => {
   const { terms, academicYearId } = data;
@@ -178,13 +156,17 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
       return responseStatus(res, 400, "failed", "Exactly three terms (1st Term, 2nd Term, 3rd Term) are required");
     }
 
-    // Validate term fields
+    // Validate term fields and isCurrent date constraints
     for (const term of terms) {
       if (!term.description || !term.duration || !term.startDate || !term.endDate) {
         return responseStatus(res, 400, "failed", "All term fields (description, duration, startDate, endDate) are required");
       }
       if (new Date(term.startDate) >= new Date(term.endDate)) {
         return responseStatus(res, 400, "failed", `Term ${term.name} start date must be before end date`);
+      }
+      if (term.isCurrent) {
+        const validationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
+        if (validationError) return validationError;
       }
     }
 
@@ -237,6 +219,20 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
         }
       }
     }
+
+    // Ensure only one term is marked as current
+    const currentTermCount = terms.filter((term) => term.isCurrent).length;
+    if (currentTermCount > 1) {
+      return responseStatus(res, 400, "failed", "Only one term can be marked as current");
+    }
+
+    // If a term is marked as current, update other terms in the academic year to isCurrent: false
+    if (currentTermCount === 1) {
+      await AcademicTerm.updateMany(
+        { academicYear: academicYearId || academicTerm.academicYear, "terms.isCurrent": true },
+        { $set: { "terms.$[].isCurrent": false } }
+      );
+    }
   }
 
   // Prepare update object
@@ -263,11 +259,34 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
 };
 
 /**
+ * Get all academic terms service.
+ */
+exports.getAcademicTermsService = async (res) => {
+  try {
+    const academicTerms = await AcademicTerm.find().populate("academicYear createdBy");
+    return responseStatus(res, 200, "success", academicTerms);
+  } catch (error) {
+    return responseStatus(res, 500, "failed", "Error fetching academic terms: " + error.message);
+  }
+};
+
+/**
+ * Get academic term by ID service.
+ */
+exports.getAcademicTermService = async (id, res) => {
+  try {
+    const academicTerm = await AcademicTerm.findById(id).populate("academicYear createdBy");
+    if (!academicTerm) {
+      return responseStatus(res, 404, "failed", "Academic Term not found");
+    }
+    return responseStatus(res, 200, "success", academicTerm);
+  } catch (error) {
+    return responseStatus(res, 500, "failed", "Error fetching academic term: " + error.message);
+  }
+};
+
+/**
  * Delete academic term service.
- *
- * @param {string} id - The ID of the academic term to be deleted.
- * @param {Object} res - The response object (for responseStatus).
- * @returns {Object} - The response object indicating success or failure.
  */
 exports.deleteAcademicTermService = async (id, res) => {
   try {
