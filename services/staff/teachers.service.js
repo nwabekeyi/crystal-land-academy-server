@@ -1,3 +1,4 @@
+// services/staff/teachers.service.js
 const {
   hashPassword,
   isPassMatched,
@@ -125,6 +126,11 @@ exports.adminRegisterTeacherService = async (data, file, adminId) => {
       subject,
       profilePictureUrl,
       linkedInProfile,
+      teachingAssignments: classLevel && subclassLetter ? [{
+        section: (await ClassLevel.findById(classLevel)).section,
+        className: (await ClassLevel.findById(classLevel)).name,
+        subclasses: [subclassLetter],
+      }] : [],
     });
 
     // Add teacher to current academic year's teachers array
@@ -171,8 +177,7 @@ exports.adminRegisterTeacherService = async (data, file, adminId) => {
  * @throws {ServiceError} - If login fails
  */
 exports.teacherLoginService = async (data) => {
-  const { email,
-    password } = data;
+  const { email, password } = data;
 
   try {
     const teacherFound = await Teacher.findOne({ email })
@@ -457,6 +462,13 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId) => {
     applicationStatus,
     profilePictureUrl,
     linkedInProfile,
+    ...(classLevel && subclassLetter ? {
+      teachingAssignments: [{
+        section: (await ClassLevel.findById(classLevel)).section,
+        className: (await ClassLevel.findById(classLevel)).name,
+        subclasses: [subclassLetter],
+      }],
+    } : {}),
   };
 
   Object.keys(updateData).forEach(
@@ -496,5 +508,46 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId) => {
       }
     }
     throw new ServiceError(500, "Error updating teacher: " + error.message);
+  }
+};
+
+/**
+ * Service to get assigned classes for a teacher
+ * @param {string} teacherId - ID of the teacher
+ * @returns {Array} - Array of assigned classes in the format [{ _id, section, name, subclasses: [{ letter }] }]
+ * @throws {ServiceError} - If teacher not found or error occurs
+ */
+exports.getAssignedClassesService = async (teacherId) => {
+  try {
+    const teacher = await Teacher.findById(teacherId).select('teachingAssignments');
+    if (!teacher) {
+      throw new ServiceError(404, "Teacher not found");
+    }
+
+    // Map teachingAssignments to match ClassLevel format
+    const assignedClasses = await Promise.all(
+      teacher.teachingAssignments.map(async (assignment) => {
+        const classLevel = await ClassLevel.findOne({
+          section: assignment.section,
+          name: assignment.className,
+        }).select('_id section name subclasses');
+
+        if (!classLevel) {
+          return null; // Skip if no matching ClassLevel
+        }
+
+        return {
+          _id: classLevel._id,
+          section: classLevel.section,
+          name: classLevel.name,
+          subclasses: assignment.subclasses.map(letter => ({ letter })),
+        };
+      })
+    );
+
+    // Filter out null values and return
+    return assignedClasses.filter(cls => cls !== null);
+  } catch (error) {
+    throw new ServiceError(500, "Error fetching assigned classes: " + error.message);
   }
 };

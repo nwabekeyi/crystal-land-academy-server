@@ -144,6 +144,11 @@ const teacherSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    rating: {
+      type: Number,
+      required: false,
+      default: 0
+    },
     religion: {
       type: String,
       enum: ["Christianity", "Islam", "Hinduism", "Buddhism", "Atheism", "Other"],

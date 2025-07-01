@@ -12,12 +12,13 @@ const upload = createMulter(); // Initialize Multer
 
 // Controllers
 const {
-  adminRegisterTeacherController, // Changed from createTeacherController
+  adminRegisterTeacherController,
   teacherLoginController,
   getAllTeachersController,
   getTeacherProfileController,
   updateTeacherProfileController,
   adminUpdateTeacherProfileController,
+  getAssignedClassesController,
 } = require("../../../controllers/staff/teachers.controller");
 
 // Create teacher
@@ -27,7 +28,7 @@ teachersRouter
     isLoggedIn,
     isAdmin,
     upload.single('profilePicture'), // Upload profile picture
-    adminRegisterTeacherController // Changed from createTeacherController
+    adminRegisterTeacherController
   );
 
 // Teacher login
@@ -62,5 +63,10 @@ teachersRouter
     upload.single('photo'), // Upload profile picture
     adminUpdateTeacherProfileController
   );
+
+// Get assigned classes for a teacher
+teachersRouter
+  .route("/class-levels/assigned")
+  .get(isLoggedIn, isTeacher, getAssignedClassesController);
 
 module.exports = teachersRouter;
