@@ -20,7 +20,7 @@ const {
 
 // Get current academic year
 academicYearRouter.route('/academic-years/current')
-  .get(isLoggedIn, isAdmin, getCurrentAcademicYearController);
+  .get(isLoggedIn, getCurrentAcademicYearController);
 
 // Routes
 academicYearRouter.route('/academic-years')
