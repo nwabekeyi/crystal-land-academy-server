@@ -8,6 +8,33 @@ exports.createStudentPaymentController = async (req, res) => {
   try {
     console.log("Incoming request body:", req.body);
 
+    // Validate required fields
+    const requiredFields = [
+      'studentId', 
+      'classLevelId',
+      'academicYear',
+      'section',
+      'termPayments'
+    ];
+    
+    const missingFields = requiredFields.filter(field => !req.body[field]);
+    
+    if (missingFields.length > 0) {
+      return res.status(400).json({
+        status: "error",
+        message: `Missing required fields: ${missingFields.join(', ')}`,
+        missingFields
+      });
+    }
+
+    // Validate termPayments structure
+    if (!Array.isArray(req.body.termPayments)) {
+      return res.status(400).json({
+        status: "error",
+        message: "termPayments must be an array"
+      });
+    }
+
     const studentPayment = await createStudentPaymentService(req.body);
 
     return res.status(201).json({
@@ -20,6 +47,7 @@ exports.createStudentPaymentController = async (req, res) => {
     return res.status(400).json({
       status: "error",
       message: error.message || "Failed to create student payment record",
+      stack: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
