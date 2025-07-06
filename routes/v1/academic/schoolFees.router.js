@@ -9,9 +9,9 @@ const {
 } = require("../../../controllers/academic/schoolFees.controller");
 
 // POST: Create a new student payment record
-studentPaymentRouter.post("/payment",loggedIn, createStudentPaymentController);
+studentPaymentRouter.post("/payment", loggedIn, createStudentPaymentController);
 
-// GET: Fetch all student payment records
+// GET: Fetch all student payment records with pagination
 studentPaymentRouter.get("/payment", getAllStudentPaymentsController);
 
 // GET: Fetch a single student payment record by ID

@@ -37,6 +37,8 @@ routeSync(app, "password");
 routeSync(app, "registrationCode");
 routeSync(app, "announcement");
 routeSync(app, "Event");
+routeSync(app, "financials");
+
 
 
 // Serve static files from the frontend build

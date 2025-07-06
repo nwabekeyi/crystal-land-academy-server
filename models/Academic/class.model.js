@@ -1,4 +1,5 @@
-const mongoose = require("mongoose");
+// models/Academic/classLevel.model.js
+const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Schema;
 
 // Reusable fee schema per term
@@ -6,7 +7,7 @@ const feeSchema = new mongoose.Schema(
   {
     termName: {
       type: String,
-      enum: ["1st Term", "2nd Term", "3rd Term"],
+      enum: ['1st Term', '2nd Term', '3rd Term'],
       required: true,
     },
     amount: {
@@ -16,43 +17,7 @@ const feeSchema = new mongoose.Schema(
     },
     description: {
       type: String,
-      default: "",
-    },
-  },
-  { _id: false }
-);
-
-// Timetable schema per subclass
-const timetableSchema = new mongoose.Schema(
-  {
-    subject: {
-      type: ObjectId,
-      ref: "Subject",
-      required: true,
-    },
-    teacher: {
-      type: ObjectId,
-      ref: "Teacher",
-      required: true,
-    },
-    dayOfWeek: {
-      type: String,
-      enum: ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"],
-      required: true,
-    },
-    startTime: {
-      type: String,
-      required: true,
-      match: /^([01]\d|2[0-3]):([0-5]\d)$/, // HH:mm format
-    },
-    endTime: {
-      type: String,
-      required: true,
-      match: /^([01]\d|2[0-3]):([0-5]\d)$/, // HH:mm format
-    },
-    location: {
-      type: String,
-      required: true,
+      default: '',
     },
   },
   { _id: false }
@@ -69,11 +34,15 @@ const subclassSchema = new mongoose.Schema(
     subjects: [
       {
         type: ObjectId,
-        ref: "Subject",
+        ref: 'Subject',
       },
     ], // Subjects allowed for all classes
-    timetables: [timetableSchema],
     feesPerTerm: [feeSchema], // Fees for each term in this subclass
+    students: [
+      {
+        type: ObjectId,
+      },
+    ], // Students in this specific subclass
   },
   { _id: false }
 );
@@ -84,16 +53,16 @@ const ClassLevelSchema = new mongoose.Schema(
     section: {
       type: String,
       required: true,
-      enum: ["Primary", "Secondary"],
+      enum: ['Primary', 'Secondary'],
     },
     name: {
       type: String,
       required: true,
       index: true,
       enum: [
-        "Kindergarten", "Reception", "Nursery 1", "Nursery 2", "Primary 1",
-        "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
-        "JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3",
+        'Kindergarten', 'Reception', 'Nursery 1', 'Nursery 2', 'Primary 1',
+        'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6',
+        'JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3',
       ],
     },
     subclasses: [subclassSchema],
@@ -102,25 +71,23 @@ const ClassLevelSchema = new mongoose.Schema(
     },
     createdBy: {
       type: ObjectId,
-      ref: "Admin",
+      ref: 'Admin',
       required: true,
     },
     academicYear: {
       type: ObjectId,
-      ref: "AcademicYear",
+      ref: 'AcademicYear',
       required: true,
     },
     students: [
       {
         type: ObjectId,
-        ref: "Student",
       },
-    ],
+    ], // Optional: Keep for backward compatibility or aggregate all subclass students
     teachers: [
       {
         teacherId: {
           type: ObjectId,
-          ref: "Teacher",
           required: true,
         },
         name: {
@@ -134,29 +101,29 @@ const ClassLevelSchema = new mongoose.Schema(
 );
 
 // Pre-validation middleware to ensure consistency
-ClassLevelSchema.pre("validate", async function (next) {
+ClassLevelSchema.pre('validate', async function (next) {
   try {
     const primary = [
-      "Kindergarten", "Reception", "Nursery 1", "Nursery 2",
-      "Primary 1", "Primary 2", "Primary 3", "Primary 4", "Primary 5", "Primary 6",
+      'Kindergarten', 'Reception', 'Nursery 1', 'Nursery 2',
+      'Primary 1', 'Primary 2', 'Primary 3', 'Primary 4', 'Primary 5', 'Primary 6',
     ];
-    const secondary = ["JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"];
+    const secondary = ['JSS 1', 'JSS 2', 'JSS 3', 'SS 1', 'SS 2', 'SS 3'];
 
     // Validate section and name
-    if (this.section === "Primary" && !primary.includes(this.name)) {
+    if (this.section === 'Primary' && !primary.includes(this.name)) {
       return next(new Error(`Invalid class name for Primary: ${this.name}`));
     }
-    if (this.section === "Secondary" && !secondary.includes(this.name)) {
+    if (this.section === 'Secondary' && !secondary.includes(this.name)) {
       return next(new Error(`Invalid class name for Secondary: ${this.name}`));
     }
 
     // Ensure unique subclass letters
     const subclassLetters = this.subclasses.map((sub) => sub.letter);
     if (new Set(subclassLetters).size !== subclassLetters.length) {
-      return next(new Error("Subclass letters must be unique"));
+      return next(new Error('Subclass letters must be unique'));
     }
 
-    // Validate subjects for all subclasses (no SS restriction)
+    // Validate subjects and students for all subclasses
     for (const subclass of this.subclasses) {
       if (Array.isArray(subclass.subjects)) {
         const subjectIds = subclass.subjects.map(String);
@@ -165,19 +132,23 @@ ClassLevelSchema.pre("validate", async function (next) {
         }
 
         for (const subjectId of subclass.subjects) {
-          const subjectExists = await mongoose.model("Subject").exists({ _id: subjectId });
+          const subjectExists = await mongoose.model('Subject').exists({ _id: subjectId });
           if (!subjectExists) {
             return next(new Error(`Invalid subject ID ${subjectId} in subclass ${subclass.letter}`));
           }
         }
       }
 
-      if (Array.isArray(subclass.timetables)) {
-        for (const tt of subclass.timetables) {
-          const start = parseInt(tt.startTime.replace(":", ""));
-          const end = parseInt(tt.endTime.replace(":", ""));
-          if (start >= end) {
-            return next(new Error(`End time must be after start time for subclass ${subclass.letter}`));
+      if (Array.isArray(subclass.students)) {
+        const studentIds = subclass.students.map(String);
+        if (new Set(studentIds).size !== studentIds.length) {
+          return next(new Error(`Duplicate students in subclass ${subclass.letter}`));
+        }
+
+        for (const studentId of subclass.students) {
+          const studentExists = await mongoose.model('Student').exists({ _id: studentId });
+          if (!studentExists) {
+            return next(new Error(`Invalid student ID ${studentId} in subclass ${subclass.letter}`));
           }
         }
       }
@@ -200,7 +171,19 @@ ClassLevelSchema.pre("validate", async function (next) {
     if (Array.isArray(this.teachers)) {
       const teacherIds = this.teachers.map((t) => t.teacherId.toString());
       if (new Set(teacherIds).size !== teacherIds.length) {
-        return next(new Error("Duplicate teacher IDs in teachers array"));
+        return next(new Error('Duplicate teacher IDs in teachers array'));
+      }
+    }
+
+    // Optional: Validate that ClassLevel.students matches all subclass students
+    if (Array.isArray(this.students)) {
+      const allSubclassStudents = this.subclasses.flatMap((sub) => sub.students || []).map(String);
+      const classLevelStudents = this.students.map(String);
+      if (!allSubclassStudents.every((id) => classLevelStudents.includes(id))) {
+        return next(new Error('All subclass students must be included in ClassLevel.students'));
+      }
+      if (!classLevelStudents.every((id) => allSubclassStudents.includes(id))) {
+        return next(new Error('ClassLevel.students contains students not in any subclass'));
       }
     }
 
@@ -210,5 +193,5 @@ ClassLevelSchema.pre("validate", async function (next) {
   }
 });
 
-const ClassLevel = mongoose.model("ClassLevel", ClassLevelSchema);
+const ClassLevel = mongoose.model('ClassLevel', ClassLevelSchema);
 module.exports = ClassLevel;

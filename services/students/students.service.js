@@ -158,13 +158,25 @@ exports.adminRegisterStudentService = async (data, file, res) => {
       role: "student",
     });
 
-    // 13. Update academic year
+    // 13. Update ClassLevel (add to both students and subclasses.students)
+    classLevel.students.push(newStudent._id);
+    const subclass = classLevel.subclasses.find((sub) => sub.letter === currentClassLevel.subclass);
+    if (subclass) {
+      subclass.students = subclass.students || [];
+      if (!subclass.students.includes(newStudent._id)) {
+        subclass.students.push(newStudent._id);
+      }
+    } else {
+      // Rollback if subclass not found
+      await deleteFromCloudinary(file.path);
+      await Student.findByIdAndDelete(newStudent._id);
+      return responseStatus(res, 500, "failed", "Subclass not found in ClassLevel");
+    }
+    await classLevel.save();
+
+    // 14. Update academic year
     currentAcademicYear.students.push(newStudent._id);
     await currentAcademicYear.save();
-
-    // 14. Update ClassLevel
-    classLevel.students.push(newStudent._id);
-    await classLevel.save();
 
     // 15. Return student without password
     const populatedStudent = await Student.findById(newStudent._id)
@@ -251,7 +263,7 @@ exports.adminUpdateStudentService = async (data, file, studentId, res) => {
         }
       }
     } catch (error) {
-      return responseStatus(res, 400, "failed", "Invalid guardians format");
+      return responseStatus(res, 400, "failed", "Invalid guardians format: " + error.message);
     }
   }
 
@@ -267,7 +279,7 @@ exports.adminUpdateStudentService = async (data, file, studentId, res) => {
         !parsedClassLevel.subclass ||
         !/^[A-Z]$/.test(parsedClassLevel.subclass)
       ) {
-        return responseStatus(res, 400, "failed", "Invalid class level data");
+        return responseStatus(res, 400, "failed", "Invalid class level data: section, className, and valid subclass (A-Z) required");
       }
 
       // Find current academic year
@@ -297,27 +309,43 @@ exports.adminUpdateStudentService = async (data, file, studentId, res) => {
         },
       };
 
-      // Remove student from old ClassLevel if class level is changing
+      // Update ClassLevel and subclass if class level or subclass is changing
       if (
         studentFound.currentClassLevel.section !== parsedClassLevel.section ||
         studentFound.currentClassLevel.className !== parsedClassLevel.className ||
         studentFound.currentClassLevel.subclass !== parsedClassLevel.subclass ||
         studentFound.currentClassLevel.academicYear.academicYearId.toString() !== currentAcademicYear._id.toString()
       ) {
+        // Remove from old ClassLevel and subclass
         const oldClassLevel = await ClassLevel.findById(studentFound.classLevelId);
         if (oldClassLevel) {
           oldClassLevel.students = oldClassLevel.students.filter((id) => !id.equals(studentId));
+          const oldSubclass = oldClassLevel.subclasses.find(
+            (sub) => sub.letter === studentFound.currentClassLevel.subclass
+          );
+          if (oldSubclass) {
+            oldSubclass.students = oldSubclass.students.filter((id) => !id.equals(studentId));
+          }
           await oldClassLevel.save();
         }
 
-        // Add student to new ClassLevel
+        // Add to new ClassLevel and subclass
         if (!newClassLevel.students.includes(studentId)) {
           newClassLevel.students.push(studentId);
-          await newClassLevel.save();
         }
+        const newSubclass = newClassLevel.subclasses.find((sub) => sub.letter === parsedClassLevel.subclass);
+        if (newSubclass) {
+          newSubclass.students = newSubclass.students || [];
+          if (!newSubclass.students.includes(studentId)) {
+            newSubclass.students.push(studentId);
+          }
+        } else {
+          return responseStatus(res, 500, "failed", "Subclass not found in new ClassLevel");
+        }
+        await newClassLevel.save();
       }
     } catch (error) {
-      return responseStatus(res, 400, "failed", "Invalid class level format");
+      return responseStatus(res, 400, "failed", "Invalid class level format: " + error.message);
     }
   }
 
@@ -664,7 +692,6 @@ exports.studentWriteExamService = async (data, studentId, examId, res) => {
   }
 };
 
-
 /**
  * Admin withdraw student service.
  * @param {string} studentId - The ID of the student to withdraw.
@@ -688,16 +715,24 @@ exports.adminWithdrawStudentService = async (studentId, res) => {
     student.isWithdrawn = true;
     await student.save();
 
-    // Optionally, remove student from ClassLevel
+    // Remove student from ClassLevel and subclass
     const classLevel = await ClassLevel.findById(student.classLevelId);
     if (classLevel) {
       classLevel.students = classLevel.students.filter(
         (id) => !id.equals(studentId)
       );
+      const subclass = classLevel.subclasses.find(
+        (sub) => sub.letter === student.currentClassLevel.subclass
+      );
+      if (subclass) {
+        subclass.students = subclass.students.filter(
+          (id) => !id.equals(studentId)
+        );
+      }
       await classLevel.save();
     }
 
-    // Optionally, remove student from AcademicYear
+    // Remove student from AcademicYear
     const currentAcademicYear = await AcademicYear.findOne({
       isCurrent: true,
     });
