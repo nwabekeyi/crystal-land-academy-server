@@ -116,6 +116,11 @@ const teacherSchema = new mongoose.Schema(
       enum: ["Male", "Female", "Other"],
       required: true,
     },
+    reviews: [
+      {
+        id: { type: mongoose.Schema.Types.ObjectId,}
+      },
+    ],
     NIN: {
       type: String,
       required: true,
@@ -146,7 +151,6 @@ const teacherSchema = new mongoose.Schema(
     },
     rating: {
       type: Number,
-      required: false,
       default: 0
     },
     religion: {

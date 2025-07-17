@@ -37,9 +37,7 @@ routeSync(app, "password");
 routeSync(app, "registrationCode");
 routeSync(app, "announcement");
 routeSync(app, "Event");
-routeSync(app, "financials");
-
-
+routeSync(app, "Review")
 
 // Serve static files from the frontend build
 app.use(express.static(path.join(__dirname, "../public/dist")));
