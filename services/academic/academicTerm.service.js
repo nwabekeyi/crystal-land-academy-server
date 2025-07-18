@@ -262,56 +262,44 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
  * Get all academic terms service.
  */
 exports.getAcademicTermsService = async (res) => {
-  try {
-    const academicTerms = await AcademicTerm.find().populate("academicYear createdBy");
-    return responseStatus(res, 200, "success", academicTerms);
-  } catch (error) {
-    return responseStatus(res, 500, "failed", "Error fetching academic terms: " + error.message);
-  }
+  const academicTerms = await AcademicTerm.find().populate("academicYear");
+  return responseStatus(res, 200, "success", academicTerms);
 };
 
 /**
  * Get academic term by ID service.
  */
 exports.getAcademicTermService = async (id, res) => {
-  try {
-    const academicTerm = await AcademicTerm.findById(id).populate("academicYear createdBy");
-    if (!academicTerm) {
-      return responseStatus(res, 404, "failed", "Academic Term not found");
-    }
-    return responseStatus(res, 200, "success", academicTerm);
-  } catch (error) {
-    return responseStatus(res, 500, "failed", "Error fetching academic term: " + error.message);
+  const academicTerm = await AcademicTerm.findById(id).populate("academicYear createdBy");
+  if (!academicTerm) {
+    return responseStatus(res, 404, "failed", "Academic Term not found");
   }
+  return responseStatus(res, 200, "success", academicTerm);
 };
 
 /**
  * Delete academic term service.
  */
 exports.deleteAcademicTermService = async (id, res) => {
-  try {
-    const academicTerm = await AcademicTerm.findById(id);
-    if (!academicTerm) {
-      return responseStatus(res, 404, "failed", "Academic Term not found");
-    }
-
-    // Remove the academic term from the AcademicYear
-    await AcademicYear.updateOne(
-      { academicTerms: id },
-      { $pull: { academicTerms: id } }
-    );
-
-    // Remove from Admin's academicTerms array
-    await Admin.updateOne(
-      { academicTerms: id },
-      { $pull: { academicTerms: id } }
-    );
-
-    // Delete the academic term
-    await AcademicTerm.findByIdAndDelete(id);
-
-    return responseStatus(res, 200, "success", "Academic Term deleted successfully");
-  } catch (error) {
-    return responseStatus(res, 500, "failed", "Error deleting academic term: " + error.message);
+  const academicTerm = await AcademicTerm.findById(id);
+  if (!academicTerm) {
+    return responseStatus(res, 404, "failed", "Academic Term not found");
   }
+
+  // Remove the academic term from the AcademicYear
+  await AcademicYear.updateOne(
+    { academicTerms: id },
+    { $pull: { academicTerms: id } }
+  );
+
+  // Remove from Admin's academicTerms array
+  await Admin.updateOne(
+    { academicTerms: id },
+    { $pull: { academicTerms: id } }
+  );
+
+  // Delete the academic term
+  await AcademicTerm.findByIdAndDelete(id);
+
+  return responseStatus(res, 200, "success", "Academic Term deleted successfully");
 };

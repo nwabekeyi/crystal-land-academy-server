@@ -1,9 +1,7 @@
 const express = require("express");
 const classRouter = express.Router();
-// Middleware
 const isAdmin = require("../../../middlewares/isAdmin");
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
-// Controllers
 const {
   getClassLevelsController,
   createClassLevelController,
@@ -12,6 +10,7 @@ const {
   deleteClassLevelController,
   signUpClassDataController,
   getClassLevelsAndSubclassesForTeacherController,
+  assignTeachersToClassController,
 } = require("../../../controllers/academic/class.controller");
 
 classRouter
@@ -29,5 +28,8 @@ classRouter
 classRouter
   .route("/class-levels/teacher/:teacherId")
   .get(isLoggedIn, isAdmin, getClassLevelsAndSubclassesForTeacherController);
+classRouter
+  .route("/class-levels/:id/assign-teachers")
+  .patch(isLoggedIn, isAdmin, assignTeachersToClassController);
 
 module.exports = classRouter;

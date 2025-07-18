@@ -1,3 +1,4 @@
+// models/ClassLevel.js
 const mongoose = require("mongoose");
 const { Schema, Types } = mongoose;
 const ObjectId = Types.ObjectId;
@@ -34,7 +35,7 @@ const subclassSchema = new Schema(
     letter: {
       type: String,
       required: true,
-      match: /^[A-Z]$/, // Single capital letter (A, B, etc.)
+      match: /^[A-Z]$/,
     },
     subjects: [
       {
@@ -117,17 +118,19 @@ const ClassLevelSchema = new Schema(
     students: [
       {
         type: ObjectId,
-        ref: "Student",
       },
     ],
     teachers: [
       {
         teacherId: {
           type: ObjectId,
-          ref: "Teacher",
           required: true,
         },
-        name: {
+        firstName: {
+          type: String,
+          required: true,
+        },
+        lastName: {
           type: String,
           required: true,
         },
@@ -221,6 +224,7 @@ ClassLevelSchema.pre("validate", async function (next) {
       }
     }
 
+   
     // Validate students
     for (const subclass of this.subclasses) {
       if (subclass.students && subclass.students.length > 0) {
@@ -228,14 +232,14 @@ ClassLevelSchema.pre("validate", async function (next) {
         if (new Set(studentIds).size !== studentIds.length) {
           return next(new Error(`Duplicate students in subclass ${subclass.letter}`));
         }
-        for (const student of subclass.students) {
-          const studentExists = await mongoose
-            .model("Student")
-            .exists({ _id: student.id });
-          if (!studentExists) {
-            return next(new Error(`Invalid student ID ${student.id} in subclass ${subclass.letter}`));
-          }
-        }
+        // for (const student of subclass.students) {
+        //   const studentExists = await mongoose
+        //     .model("Student")
+        //     .exists({ _id: student.id });
+        //   if (!studentExists) {
+        //     return next(new Error(`Invalid student ID ${student.id} in subclass ${subclass.letter}`));
+        //   }
+        // }
       }
     }
 
@@ -267,6 +271,13 @@ ClassLevelSchema.pre("validate", async function (next) {
       if (validTeachers.length !== teacherIds.length) {
         return next(new Error("Invalid teacher IDs in teachers array"));
       }
+      // Ensure firstName and lastName match the Teacher documents
+      for (const teacher of this.teachers) {
+        const teacherDoc = validTeachers.find(t => t._id.toString() === teacher.teacherId.toString());
+        if (!teacherDoc || teacher.firstName !== teacherDoc.firstName || teacher.lastName !== teacherDoc.lastName) {
+          return next(new Error(`Teacher data mismatch for ID ${teacher.teacherId}`));
+        }
+      }
     }
 
     // Validate students aggregation
@@ -288,3 +299,4 @@ ClassLevelSchema.pre("validate", async function (next) {
 
 const ClassLevel = mongoose.model("ClassLevel", ClassLevelSchema);
 module.exports = ClassLevel;
+
