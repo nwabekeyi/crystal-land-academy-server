@@ -11,18 +11,18 @@ const {
 } = require('../../../controllers/Event/index');
 
 // POST: Create a new event
-eventRouter.post('/event',isAdmin, loggedIn, createEventController);
+eventRouter.post('/event',loggedIn,isAdmin, createEventController);
 
 // GET: Fetch all events
-eventRouter.get('/event', getAllEventsController);
+eventRouter.get('/event',loggedIn, getAllEventsController);
 
 // GET: Fetch a single event by ID
-eventRouter.get('/event/:id', getEventByIdController);
+eventRouter.get('/event/:id',loggedIn, getEventByIdController);
 
 // PUT: Update an event by ID
-eventRouter.patch('/event/:id',isAdmin, loggedIn, updateEventController);
+eventRouter.patch('/event/:id',loggedIn,isAdmin, updateEventController);
 
 // DELETE: Delete an event by ID
-eventRouter.delete('/event/:id',isAdmin, loggedIn, deleteEventController);
+eventRouter.delete('/event/:id',loggedIn,isAdmin, deleteEventController);
 
 module.exports = eventRouter;

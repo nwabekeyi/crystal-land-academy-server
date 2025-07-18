@@ -101,7 +101,7 @@ const ClassLevelSchema = new Schema(
       {
         type: ObjectId,
       },
-    ], // Subjects for non-SS 1–3 class levels
+    ],
     subclasses: [subclassSchema],
     description: {
       type: String,
@@ -117,12 +117,14 @@ const ClassLevelSchema = new Schema(
     students: [
       {
         type: ObjectId,
+        ref: "Student",
       },
-    ], // Aggregate all subclass students
+    ],
     teachers: [
       {
         teacherId: {
           type: ObjectId,
+          ref: "Teacher",
           required: true,
         },
         name: {
@@ -174,57 +176,39 @@ ClassLevelSchema.pre("validate", async function (next) {
 
     // Validate subjects based on class level
     if (["SS 1", "SS 2", "SS 3"].includes(this.name)) {
-      // For SS 1–3, subjects should be in subclasses, not at class level
       if (this.subjects && this.subjects.length > 0) {
-        return next(
-          new Error(`Subjects not allowed at class level for ${this.name}`)
-        );
+        return next(new Error(`Subjects not allowed at class level for ${this.name}`));
       }
       for (const subclass of this.subclasses) {
         if (subclass.subjects && subclass.subjects.length > 0) {
           const subjectIds = subclass.subjects.map((s) => s.subject.toString());
           if (new Set(subjectIds).size !== subjectIds.length) {
-            return next(
-              new Error(`Duplicate subjects in subclass ${subclass.letter}`)
-            );
+            return next(new Error(`Duplicate subjects in subclass ${subclass.letter}`));
           }
           for (const subjectEntry of subclass.subjects) {
-            const subjectExists = await mongoose
-              .model("Subject")
-              .findById(subjectEntry.subject);
+            const subjectExists = await mongoose.model("Subject").findById(subjectEntry.subject);
             if (!subjectExists) {
-              return next(
-                new Error(
-                  `Invalid subject ID ${subjectEntry.subject} in subclass ${subclass.letter}`
-                )
-              );
+              return next(new Error(`Invalid subject ID ${subjectEntry.subject} in subclass ${subclass.letter}`));
             }
             if (subjectEntry.teachers && subjectEntry.teachers.length > 0) {
               const validTeachers = await mongoose
                 .model("Teacher")
                 .find({ _id: { $in: subjectEntry.teachers } });
               if (validTeachers.length !== subjectEntry.teachers.length) {
-                return next(
-                  new Error(
-                    `Invalid teacher IDs in subclass ${subclass.letter} for subject ${subjectEntry.subject}`
-                  )
-                );
+                return next(new Error(`Invalid teacher IDs in subclass ${subclass.letter} for subject ${subjectEntry.subject}`));
               }
             }
           }
         }
       }
     } else {
-      // For non-SS 1–3, subjects should be at class level
       if (this.subjects && this.subjects.length > 0) {
         const subjectIds = this.subjects.map(String);
         if (new Set(subjectIds).size !== subjectIds.length) {
           return next(new Error("Duplicate subjects in class level"));
         }
         for (const subjectId of this.subjects) {
-          const subjectExists = await mongoose
-            .model("Subject")
-            .findById(subjectId);
+          const subjectExists = await mongoose.model("Subject").findById(subjectId);
           if (!subjectExists) {
             return next(new Error(`Invalid subject ID ${subjectId}`));
           }
@@ -232,9 +216,7 @@ ClassLevelSchema.pre("validate", async function (next) {
       }
       for (const subclass of this.subclasses) {
         if (subclass.subjects && subclass.subjects.length > 0) {
-          return next(
-            new Error(`Subjects not allowed in subclasses for ${this.name}`)
-          );
+          return next(new Error(`Subjects not allowed in subclasses for ${this.name}`));
         }
       }
     }
@@ -244,20 +226,14 @@ ClassLevelSchema.pre("validate", async function (next) {
       if (subclass.students && subclass.students.length > 0) {
         const studentIds = subclass.students.map((s) => s.id.toString());
         if (new Set(studentIds).size !== studentIds.length) {
-          return next(
-            new Error(`Duplicate students in subclass ${subclass.letter}`)
-          );
+          return next(new Error(`Duplicate students in subclass ${subclass.letter}`));
         }
         for (const student of subclass.students) {
           const studentExists = await mongoose
             .model("Student")
             .exists({ _id: student.id });
           if (!studentExists) {
-            return next(
-              new Error(
-                `Invalid student ID ${student.id} in subclass ${subclass.letter}`
-              )
-            );
+            return next(new Error(`Invalid student ID ${student.id} in subclass ${subclass.letter}`));
           }
         }
       }
@@ -269,17 +245,11 @@ ClassLevelSchema.pre("validate", async function (next) {
         const seenTerms = new Set();
         for (const fee of subclass.feesPerTerm) {
           if (seenTerms.has(fee.termName)) {
-            return next(
-              new Error(`Duplicate fee term in subclass ${subclass.letter}`)
-            );
+            return next(new Error(`Duplicate fee term in subclass ${subclass.letter}`));
           }
           seenTerms.add(fee.termName);
           if (fee.amount < 0) {
-            return next(
-              new Error(
-                `Fee amount must be non-negative in subclass ${subclass.letter}`
-              )
-            );
+            return next(new Error(`Fee amount must be non-negative in subclass ${subclass.letter}`));
           }
         }
       }
@@ -305,12 +275,8 @@ ClassLevelSchema.pre("validate", async function (next) {
         .flatMap((sub) => sub.students || [])
         .map((s) => s.id.toString());
       const classLevelStudents = this.students.map(String);
-      if (
-        !classLevelStudents.every((id) => allSubclassStudents.includes(id))
-      ) {
-        return next(
-          new Error("ClassLevel.students contains students not in any subclass")
-        );
+      if (!classLevelStudents.every((id) => allSubclassStudents.includes(id))) {
+        return next(new Error("ClassLevel.students contains students not in any subclass"));
       }
     }
 
