@@ -5,13 +5,15 @@ const {
   getClassLevelsService,
   deleteClassLevelService,
   updateClassLevelService,
+  signUpClassDataService,
+  getClassLevelsAndSubclassesForTeacherService,
 } = require("../../services/academic/class.service");
 
 /**
  * @desc Create Class Level
  * @route POST /api/v1/class-levels
  * @access Private
- **/
+ */
 exports.createClassLevelController = async (req, res) => {
   try {
     await createClassLevelService(req.body, req.userAuth.id, res);
@@ -24,11 +26,10 @@ exports.createClassLevelController = async (req, res) => {
  * @desc Get all Class Levels
  * @route GET /api/v1/class-levels
  * @access Private
- **/
+ */
 exports.getClassLevelsController = async (req, res) => {
   try {
-    const result = await getAllClassesService();
-    responseStatus(res, 200, "success", result);
+    await getAllClassesService(req.query, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -38,11 +39,10 @@ exports.getClassLevelsController = async (req, res) => {
  * @desc Get single Class Level
  * @route GET /api/v1/class-levels/:id
  * @access Private
- **/
+ */
 exports.getClassLevelController = async (req, res) => {
   try {
-    const result = await getClassLevelsService(req.params.id);
-    responseStatus(res, 200, "success", result);
+    await getClassLevelsService(req.params.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -50,17 +50,12 @@ exports.getClassLevelController = async (req, res) => {
 
 /**
  * @desc Update Class Level
- * @route Patch /api/v1/class-levels/:id
+ * @route PATCH /api/v1/class-levels/:id
  * @access Private
- **/
+ */
 exports.updateClassLevelController = async (req, res) => {
   try {
-    await updateClassLevelService(
-      req.body,
-      req.params.id,
-      req.userAuth.id,
-      res
-    );
+    await updateClassLevelService(req.body, req.params.id, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -68,13 +63,38 @@ exports.updateClassLevelController = async (req, res) => {
 
 /**
  * @desc Delete Class Level
- * @route Delete /api/v1/class-levels/:id
+ * @route DELETE /api/v1/class-levels/:id
  * @access Private
- **/
+ */
 exports.deleteClassLevelController = async (req, res) => {
   try {
-    const result = await deleteClassLevelService(req.params.id);
-    responseStatus(res, 200, "success", result);
+    await deleteClassLevelService(req.params.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Get signup class level data
+ * @route GET /api/v1/class-levels/sign-up-data
+ * @access Private
+ */
+exports.signUpClassDataController = async (req, res) => {
+  try {
+    await signUpClassDataService(res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Get Class Levels and Subclasses for a Teacher
+ * @route GET /api/v1/class-levels/teacher/:teacherId
+ * @access Private
+ */
+exports.getClassLevelsAndSubclassesForTeacherController = async (req, res) => {
+  try {
+    await getClassLevelsAndSubclassesForTeacherService(req.params.teacherId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

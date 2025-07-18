@@ -1,4 +1,3 @@
-// routes/students.js
 const express = require("express");
 const studentsRouter = express.Router();
 
@@ -20,7 +19,10 @@ const {
   studentUpdateProfileController,
   adminUpdateStudentController,
   studentWriteExamController,
-  adminWithdrawStudentController
+  adminWithdrawStudentController,
+  adminDeleteStudentController,
+  adminSuspendStudentController, // Added
+  adminUnsuspendStudentController
 } = require("../../../controllers/students/students.controller");
 
 // Create Student by Admin
@@ -29,7 +31,7 @@ studentsRouter
   .post(
     isLoggedIn,
     isAdmin,
-    upload.single('profilePicture'), // Apply Multer for profile picture upload
+    upload.single('profilePicture'),
     adminRegisterStudentController
   );
 
@@ -38,7 +40,7 @@ studentsRouter.route("/students/login").post(studentLoginController);
 
 // Get Student Profile
 studentsRouter
-  .route("/students/profile")
+  .route("admin/students/profile")
   .get(isLoggedIn, isStudent, getStudentProfileController);
 
 // Get All Students by Admin
@@ -48,33 +50,47 @@ studentsRouter
 
 // Get Single Student by Admin
 studentsRouter
-  .route("/:studentId/admin")
+  .route("/admin/students/:studentId")
   .get(isLoggedIn, isAdmin, getStudentByAdminController);
 
 // Update Student Profile by Student
 studentsRouter
-  .route("/update")
-  .patch(isLoggedIn, isStudent, studentUpdateProfileController);
+  .route("/students/update")
+  .patch(isLoggedIn, isStudent, upload.single('profilePicture'),
+  studentUpdateProfileController);
 
 // Admin Update Student Profile
 studentsRouter
-  .route("/:studentId/update/admin")
+  .route("/admin/students/:studentId")
   .patch(
     isLoggedIn,
     isAdmin,
-    upload.single('profilePicture'), // Apply Multer for profile picture update
+    upload.single('profilePicture'),
     adminUpdateStudentController
   );
 
 // Student Write Exam
 studentsRouter
-  .route("/students/:examId/exam-write")
+  .route("admin/students/:examId/exam-write")
   .post(isLoggedIn, isStudent, studentWriteExamController);
 
-
-  // Admin Withdraw Student
+// Admin Withdraw Student
 studentsRouter
-.route("/admin/students/withdraw/:studentId")
-.patch(isLoggedIn, isAdmin, adminWithdrawStudentController);
+  .route("/admin/students/withdraw/:studentId")
+  .patch(isLoggedIn, isAdmin, adminWithdrawStudentController);
+
+// Delete Student by Admin
+studentsRouter
+  .route("/admin/students/delete/:studentId")
+  .delete(isLoggedIn, isAdmin, adminDeleteStudentController);
+
+// Suspend Student by Admin
+studentsRouter
+  .route("/admin/students/suspend/:studentId")
+  .patch(isLoggedIn, isAdmin, adminSuspendStudentController);
+
+  studentsRouter
+  .route("/admin/students/unsuspend/:studentId")
+  .patch(isLoggedIn, isAdmin, adminUnsuspendStudentController);
 
 module.exports = studentsRouter;

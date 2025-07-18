@@ -15,25 +15,22 @@ const subjectSchema = new mongoose.Schema(
     },
     academicYear: {
       type: ObjectId,
-      ref: "AcademicYear",
       required: true,
     },
     classLevelSubclasses: [
       {
         classLevel: {
           type: ObjectId,
-          ref: "ClassLevel",
           required: true,
         },
         subclassLetter: {
           type: String,
-          required: true,
           match: /^[A-Z]$/, // Single capital letter (A, B, etc.)
+          // Validation moved to service layer to avoid synchronous ClassLevel query
         },
         teachers: [
           {
             type: ObjectId,
-            ref: "Teacher",
           },
         ],
       },
@@ -53,31 +50,41 @@ subjectSchema.pre("save", async function (next) {
       throw new Error("Referenced AcademicYear does not exist");
     }
 
-    // Validate classLevelSubclasses and teachers
+    // Validate classLevelSubclasses
     if (subject.classLevelSubclasses && subject.classLevelSubclasses.length > 0) {
       for (const cls of subject.classLevelSubclasses) {
-        // Validate classLevel
         const classLevel = await mongoose.model("ClassLevel").findById(cls.classLevel);
         if (!classLevel) {
           throw new Error(`ClassLevel with ID ${cls.classLevel} does not exist`);
         }
-        // Validate subclassLetter exists in classLevel.subclasses
-        const subclassExists = classLevel.subclasses.some(
-          (sub) => sub.letter === cls.subclassLetter
-        );
-        if (!subclassExists) {
-          throw new Error(
-            `Subclass ${cls.subclassLetter} does not exist in ClassLevel ${cls.classLevel}`
+
+        // Validate subclassLetter
+        if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+          if (!cls.subclassLetter) {
+            throw new Error(`Subclass letter required for ${classLevel.name}`);
+          }
+          const subclassExists = classLevel.subclasses.some(
+            (s) => s.letter === cls.subclassLetter
           );
+          if (!subclassExists) {
+            throw new Error(
+              `Subclass ${cls.subclassLetter} does not exist in ${classLevel.name}`
+            );
+          }
+        } else {
+          if (cls.subclassLetter) {
+            throw new Error(`Subclass letter not allowed for ${classLevel.name}`);
+          }
         }
-        // Validate teachers if provided
+
+        // Validate teachers
         if (cls.teachers && cls.teachers.length > 0) {
-          const validTeachers = await mongoose.model("Teacher").find({
-            _id: { $in: cls.teachers },
-          });
+          const validTeachers = await mongoose
+            .model("Teacher")
+            .find({ _id: { $in: cls.teachers } });
           if (validTeachers.length !== cls.teachers.length) {
             throw new Error(
-              `One or more Teachers for ClassLevel ${cls.classLevel} subclass ${cls.subclassLetter} are invalid`
+              `Invalid teacher IDs for ClassLevel ${cls.classLevel} subclass ${cls.subclassLetter || "all"}`
             );
           }
         }

@@ -8,7 +8,10 @@ const {
   studentUpdateProfileService,
   adminUpdateStudentService,
   studentWriteExamService,
-  adminWithdrawStudentService
+  adminWithdrawStudentService,
+  adminDeleteStudentService,
+  adminSuspendStudentService,
+  adminUnsuspendStudentService
 } = require("../../services/students/students.service");
 
 /**
@@ -52,11 +55,14 @@ exports.getStudentProfileController = async (req, res) => {
  * @route GET /api/v1/admin/students
  * @access Private admin only
  **/
+
 exports.getAllStudentsByAdminController = async (req, res) => {
   try {
-    const students = await getAllStudentsByAdminService(res); // Remove res from service call
+    const result = await getAllStudentsByAdminService(req.query, res);
+    if (result.status === "failed") return; // responseStatus already sent
+    res.status(200).json(result);
   } catch (error) {
-    return responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 400, "failed", error.message);
   }
 };
 
@@ -89,12 +95,12 @@ exports.studentUpdateProfileController = async (req, res) => {
 
 /**
  * @desc Admin updating Students eg: Assigning classes....
- * @route UPDATE /api/v1/students/:studentID/update/admin
+ * @route PATCH /api/v1/students/:studentId/update/admin
  * @access Private Admin only
- **/
+ */
 exports.adminUpdateStudentController = async (req, res) => {
   try {
-    await adminUpdateStudentService(req.body, req.params.studentId);
+    await adminUpdateStudentService(req.body, req.file, req.params.studentId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }
@@ -127,6 +133,47 @@ exports.studentWriteExamController = async (req, res) => {
 exports.adminWithdrawStudentController = async (req, res) => {
   try {
     await adminWithdrawStudentService(req.params.studentId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+
+/**
+ * @desc Admin Delete Student
+ * @route DELETE /api/v1/students/:studentId/delete/admin
+ * @access Private Admin only
+ */
+exports.adminDeleteStudentController = async (req, res) => {
+  try {
+    await adminDeleteStudentService(req.params.studentId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+
+/**
+ * @desc Admin Suspend Student
+ * @route PATCH /api/v1/students/admin/students/suspend/:studentId
+ * @access Private Admin only
+ */
+exports.adminSuspendStudentController = async (req, res) => {
+  try {
+    await adminSuspendStudentService(req.params.studentId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Admin Unsuspend Student
+ * @route PATCH /api/v1/students/admin/students/unsuspend/:studentId
+ * @access Private Admin only
+ */
+exports.adminUnsuspendStudentController = async (req, res) => {
+  try {
+    await adminUnsuspendStudentService(req.params.studentId, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

@@ -7,7 +7,6 @@ const mongoose = require("mongoose");
 /**
  * Create Subject service.
  * @param {Object} data - The data containing information about the Subject.
- * @param {string} userId - The ID of the user creating the Subject.
  * @returns {Object} - The created subject.
  * @throws {Error} - If validation fails or an error occurs.
  */
@@ -22,7 +21,7 @@ exports.createSubjectService = async (data) => {
     throw error;
   }
 
-  // Validate and sanitize classLevelSubclasses and teachers
+  // Validate and sanitize classLevelSubclasses
   let sanitizedClassLevelSubclasses = [];
   if (classLevelSubclasses && classLevelSubclasses.length > 0) {
     sanitizedClassLevelSubclasses = await Promise.all(
@@ -33,21 +32,35 @@ exports.createSubjectService = async (data) => {
           error.statusCode = 400;
           throw error;
         }
+
         // Validate subclassLetter
-        const subclassExists = classLevel.subclasses.some(
-          (sub) => sub.letter === cls.subclassLetter
-        );
-        if (!subclassExists) {
-          const error = new Error(
-            `Subclass ${cls.subclassLetter} does not exist in ClassLevel ${cls.classLevel}`
+        if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+          if (!cls.subclassLetter) {
+            const error = new Error(`Subclass letter required for ${classLevel.name}`);
+            error.statusCode = 400;
+            throw error;
+          }
+          const subclassExists = classLevel.subclasses.some(
+            (sub) => sub.letter === cls.subclassLetter
           );
-          error.statusCode = 400;
-          throw error;
+          if (!subclassExists) {
+            const error = new Error(
+              `Subclass ${cls.subclassLetter} does not exist in ${classLevel.name}`
+            );
+            error.statusCode = 400;
+            throw error;
+          }
+        } else {
+          if (cls.subclassLetter) {
+            const error = new Error(`Subclass letter not allowed for ${classLevel.name}`);
+            error.statusCode = 400;
+            throw error;
+          }
         }
+
         // Validate and sanitize teachers
         let sanitizedTeachers = [];
         if (cls.teachers && cls.teachers.length > 0) {
-          // Ensure only teacher IDs are included
           sanitizedTeachers = cls.teachers.map((teacher) =>
             mongoose.Types.ObjectId.isValid(teacher) ? teacher : teacher._id
           );
@@ -56,15 +69,16 @@ exports.createSubjectService = async (data) => {
           });
           if (validTeachers.length !== sanitizedTeachers.length) {
             const error = new Error(
-              `One or more Teachers for ClassLevel ${cls.classLevel} subclass ${cls.subclassLetter} are invalid`
+              `One or more Teachers for ${classLevel.name} ${cls.subclassLetter || "all"} are invalid`
             );
             error.statusCode = 400;
             throw error;
           }
         }
+
         return {
           classLevel: cls.classLevel,
-          subclassLetter: cls.subclassLetter,
+          subclassLetter: cls.subclassLetter || null,
           teachers: sanitizedTeachers,
         };
       })
@@ -79,46 +93,65 @@ exports.createSubjectService = async (data) => {
     classLevelSubclasses: sanitizedClassLevelSubclasses,
   });
 
-  // Update ClassLevel.subclasses.subjects with the new subject ID
+  // Update ClassLevel
   if (sanitizedClassLevelSubclasses.length > 0) {
     for (const cls of sanitizedClassLevelSubclasses) {
-      await ClassLevel.updateOne(
-        {
-          _id: cls.classLevel,
-          "subclasses.letter": cls.subclassLetter,
-        },
-        {
-          $addToSet: { "subclasses.$.subjects": subjectCreated._id },
-        }
-      );
-    }
-  }
-
-  // Update Teachers' subject field with the new subject ID
-  if (sanitizedClassLevelSubclasses.length > 0) {
-    for (const cls of sanitizedClassLevelSubclasses) {
-      if (cls.teachers && cls.teachers.length > 0) {
-        await Teacher.updateMany(
-          { _id: { $in: cls.teachers } },
-          { $addToSet: { subject: subjectCreated._id } }
+      const classLevel = await ClassLevel.findById(cls.classLevel);
+      if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+        // Add subject to specific subclass for SS 1–3
+        await ClassLevel.updateOne(
+          {
+            _id: cls.classLevel,
+            "subclasses.letter": cls.subclassLetter,
+          },
+          {
+            $addToSet: {
+              "subclasses.$[sub].subjects": {
+                subject: subjectCreated._id,
+                teachers: cls.teachers,
+              },
+            },
+          },
+          {
+            arrayFilters: [{ "sub.letter": cls.subclassLetter }],
+          }
+        );
+      } else {
+        // Add subject to class-level subjects and all subclasses for non-SS 1–3
+        await ClassLevel.updateOne(
+          { _id: cls.classLevel },
+          {
+            $addToSet: {
+              subjects: subjectCreated._id,
+              "subclasses.$[].subjects": {
+                subject: subjectCreated._id,
+                teachers: cls.teachers,
+              },
+            },
+          }
         );
       }
     }
   }
 
-  // Populate relevant fields for the response
-  const populatedSubject = await Subject.findById(subjectCreated._id).populate({
-    path: "academicYear classLevelSubclasses.classLevel classLevelSubclasses.teachers createdBy",
-  });
+  // Update Teachers
+  const teacherIds = sanitizedClassLevelSubclasses
+    .filter((cls) => cls.teachers && cls.teachers.length > 0)
+    .flatMap((cls) => cls.teachers);
+  if (teacherIds.length > 0) {
+    await Teacher.updateMany(
+      { _id: { $in: teacherIds } },
+      { $addToSet: { subjects: subjectCreated._id } }
+    );
+  }
 
-  return populatedSubject;
+  return subjectCreated;
 };
 
 /**
  * Update Subject data service.
  * @param {Object} data - The data containing updated information about the Subject.
  * @param {string} id - The ID of the Subject to be updated.
- * @param {string} userId - The ID of the user updating the Subject.
  * @returns {Object} - The updated subject.
  * @throws {Error} - If validation fails or an error occurs.
  */
@@ -145,7 +178,7 @@ exports.updateSubjectService = async (data, id) => {
     throw error;
   }
 
-  // Validate and sanitize classLevelSubclasses and teachers
+  // Validate and sanitize classLevelSubclasses
   let sanitizedClassLevelSubclasses = [];
   if (classLevelSubclasses && classLevelSubclasses.length > 0) {
     sanitizedClassLevelSubclasses = await Promise.all(
@@ -156,21 +189,35 @@ exports.updateSubjectService = async (data, id) => {
           error.statusCode = 400;
           throw error;
         }
+
         // Validate subclassLetter
-        const subclassExists = classLevel.subclasses.some(
-          (sub) => sub.letter === cls.subclassLetter
-        );
-        if (!subclassExists) {
-          const error = new Error(
-            `Subclass ${cls.subclassLetter} does not exist in ClassLevel ${cls.classLevel}`
+        if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+          if (!cls.subclassLetter) {
+            const error = new Error(`Subclass letter required for ${classLevel.name}`);
+            error.statusCode = 400;
+            throw error;
+          }
+          const subclassExists = classLevel.subclasses.some(
+            (sub) => sub.letter === cls.subclassLetter
           );
-          error.statusCode = 400;
-          throw error;
+          if (!subclassExists) {
+            const error = new Error(
+              `Subclass ${cls.subclassLetter} does not exist in ${classLevel.name}`
+            );
+            error.statusCode = 400;
+            throw error;
+          }
+        } else {
+          if (cls.subclassLetter) {
+            const error = new Error(`Subclass letter not allowed for ${classLevel.name}`);
+            error.statusCode = 400;
+            throw error;
+          }
         }
+
         // Validate and sanitize teachers
         let sanitizedTeachers = [];
         if (cls.teachers && cls.teachers.length > 0) {
-          // Ensure only teacher IDs are included
           sanitizedTeachers = cls.teachers.map((teacher) =>
             mongoose.Types.ObjectId.isValid(teacher) ? teacher : teacher._id
           );
@@ -179,18 +226,127 @@ exports.updateSubjectService = async (data, id) => {
           });
           if (validTeachers.length !== sanitizedTeachers.length) {
             const error = new Error(
-              `One or more Teachers for ClassLevel ${cls.classLevel} subclass ${cls.subclassLetter} are invalid`
+              `One or more Teachers for ${classLevel.name} ${cls.subclassLetter || "all"} are invalid`
             );
             error.statusCode = 400;
             throw error;
           }
         }
+
         return {
           classLevel: cls.classLevel,
-          subclassLetter: cls.subclassLetter,
+          subclassLetter: cls.subclassLetter || null,
           teachers: sanitizedTeachers,
         };
       })
+    );
+  }
+
+  // Update ClassLevel: Remove subject from old assignments
+  if (subject.classLevelSubclasses && subject.classLevelSubclasses.length > 0) {
+    for (const cls of subject.classLevelSubclasses) {
+      const classLevel = await ClassLevel.findById(cls.classLevel);
+      if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+        const newSubclasses =
+          sanitizedClassLevelSubclasses
+            .filter((c) => c.classLevel.toString() === cls.classLevel.toString())
+            .map((c) => c.subclassLetter) || [];
+        if (!newSubclasses.includes(cls.subclassLetter)) {
+          await ClassLevel.updateOne(
+            {
+              _id: cls.classLevel,
+              "subclasses.letter": cls.subclassLetter,
+            },
+            {
+              $pull: {
+                "subclasses.$[sub].subjects": { subject: subject._id },
+              },
+            },
+            {
+              arrayFilters: [{ "sub.letter": cls.subclassLetter }],
+            }
+          );
+        }
+      } else {
+        const isStillAssigned = sanitizedClassLevelSubclasses.some(
+          (c) => c.classLevel.toString() === cls.classLevel.toString()
+        );
+        if (!isStillAssigned) {
+          await ClassLevel.updateOne(
+            { _id: cls.classLevel },
+            {
+              $pull: {
+                subjects: subject._id,
+                "subclasses.$[].subjects": { subject: subject._id },
+              },
+            }
+          );
+        }
+      }
+    }
+  }
+
+  // Update ClassLevel: Add subject to new assignments
+  if (sanitizedClassLevelSubclasses.length > 0) {
+    for (const cls of sanitizedClassLevelSubclasses) {
+      const classLevel = await ClassLevel.findById(cls.classLevel);
+      if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+        await ClassLevel.updateOne(
+          {
+            _id: cls.classLevel,
+            "subclasses.letter": cls.subclassLetter,
+          },
+          {
+            $addToSet: {
+              "subclasses.$[sub].subjects": {
+                subject: subject._id,
+                teachers: cls.teachers,
+              },
+            },
+          },
+          {
+            arrayFilters: [{ "sub.letter": cls.subclassLetter }],
+          }
+        );
+      } else {
+        await ClassLevel.updateOne(
+          { _id: cls.classLevel },
+          {
+            $addToSet: {
+              subjects: subject._id,
+              "subclasses.$[].subjects": {
+                subject: subject._id,
+                teachers: cls.teachers,
+              },
+            },
+          }
+        );
+      }
+    }
+  }
+
+  // Update Teachers
+  const oldTeacherIds = subject.classLevelSubclasses
+    .filter((cls) => cls.teachers && cls.teachers.length > 0)
+    .flatMap((cls) => cls.teachers);
+  const newTeacherIds = sanitizedClassLevelSubclasses
+    .filter((cls) => cls.teachers && cls.teachers.length > 0)
+    .flatMap((cls) => cls.teachers);
+
+  if (oldTeacherIds.length > 0) {
+    await Teacher.updateMany(
+      {
+        _id: { $in: oldTeacherIds, $nin: newTeacherIds },
+        subjects: subject._id,
+      },
+      { $pull: { subjects: subject._id } }
+    );
+  }
+
+  if (newTeacherIds.length > 0) {
+    await Teacher.updateMany(
+      { _id: { $in: newTeacherIds } },
+      { $addToSet: { subjects: subject._id } }
     );
   }
 
@@ -201,51 +357,10 @@ exports.updateSubjectService = async (data, id) => {
       name,
       description,
       academicYear: academicYear || subject.academicYear,
-      classLevelSubclasses:
-        sanitizedClassLevelSubclasses !== undefined
-          ? sanitizedClassLevelSubclasses
-          : subject.classLevelSubclasses,
+      classLevelSubclasses: sanitizedClassLevelSubclasses,
     },
     { new: true }
-  ).populate({
-    path: "academicYear classLevelSubclasses.classLevel classLevelSubclasses.teachers createdBy",
-  });
-
-  // Update Teachers' subject field with the subject ID
-  if (sanitizedClassLevelSubclasses.length > 0) {
-    // Collect all teacher IDs from the updated classLevelSubclasses
-    const newTeacherIds = sanitizedClassLevelSubclasses
-      .filter((cls) => cls.teachers && cls.teachers.length > 0)
-      .flatMap((cls) => cls.teachers);
-
-    // Collect all teacher IDs from the existing subject
-    const oldTeacherIds = subject.classLevelSubclasses
-      .filter((cls) => cls.teachers && cls.teachers.length > 0)
-      .flatMap((cls) => cls.teachers);
-
-    // Remove subject from teachers not in the updated list
-    await Teacher.updateMany(
-      { _id: { $in: oldTeacherIds, $nin: newTeacherIds }, subject: subject._id },
-      { $pull: { subject: subject._id } }
-    );
-
-    // Add subject to the updated teachers
-    if (newTeacherIds.length > 0) {
-      await Teacher.updateMany(
-        { _id: { $in: newTeacherIds } },
-        { $addToSet: { subject: subject._id } }
-      );
-    }
-  } else {
-    // If no classLevelSubclasses provided, remove subject from all previous teachers
-    const oldTeacherIds = subject.classLevelSubclasses
-      .filter((cls) => cls.teachers && cls.teachers.length > 0)
-      .flatMap((cls) => cls.teachers);
-    await Teacher.updateMany(
-      { _id: { $in: oldTeacherIds }, subject: subject._id },
-      { $pull: { subject: subject._id } }
-    );
-  }
+  );
 
   return updatedSubject;
 };
@@ -255,10 +370,7 @@ exports.updateSubjectService = async (data, id) => {
  * @returns {Array} - List of all subjects.
  */
 exports.getAllSubjectsService = async () => {
-  const subjects = await Subject.find().populate({
-    path: "academicYear classLevelSubclasses.classLevel classLevelSubclasses.teachers",
-  });
-  return subjects;
+  return await Subject.find();
 };
 
 /**
@@ -268,9 +380,7 @@ exports.getAllSubjectsService = async () => {
  * @throws {Error} - If the subject is not found.
  */
 exports.getSubjectsService = async (id) => {
-  const subject = await Subject.findById(id).populate({
-    path: "academicYear classLevelSubclasses.classLevel classLevelSubclasses.teachers",
-  });
+  const subject = await Subject.findById(id);
   if (!subject) {
     const error = new Error("Subject not found");
     error.statusCode = 404;
@@ -293,14 +403,50 @@ exports.deleteSubjectService = async (id) => {
     throw error;
   }
 
-  // Remove subject from associated teachers
+  // Remove subject from ClassLevel
+  if (subject.classLevelSubclasses && subject.classLevelSubclasses.length > 0) {
+    for (const cls of subject.classLevelSubclasses) {
+      const classLevel = await ClassLevel.findById(cls.classLevel);
+      if (!classLevel) {
+        continue; // Skip if ClassLevel no longer exists
+      }
+      if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+        await ClassLevel.updateOne(
+          {
+            _id: cls.classLevel,
+            "subclasses.letter": cls.subclassLetter,
+          },
+          {
+            $pull: {
+              "subclasses.$[sub].subjects": { subject: subject._id },
+            },
+          },
+          {
+            arrayFilters: [{ "sub.letter": cls.subclassLetter }],
+          }
+        );
+      } else {
+        await ClassLevel.updateOne(
+          { _id: cls.classLevel },
+          {
+            $pull: {
+              subjects: subject._id,
+              "subclasses.$[].subjects": { subject: subject._id },
+            },
+          }
+        );
+      }
+    }
+  }
+
+  // Remove subject from teachers
   const teacherIds = subject.classLevelSubclasses
     .filter((cls) => cls.teachers && cls.teachers.length > 0)
     .flatMap((cls) => cls.teachers);
   if (teacherIds.length > 0) {
     await Teacher.updateMany(
       { _id: { $in: teacherIds } },
-      { $pull: { subject: subject._id } }
+      { $pull: { subjects: subject._id } }
     );
   }
 
@@ -308,4 +454,90 @@ exports.deleteSubjectService = async (id) => {
   await Subject.findByIdAndDelete(id);
 
   return "Subject deleted successfully";
+};
+
+/**
+ * Get Subjects for a Subclass service.
+ * @param {Object} data - The data containing classLevelId and subclassLetter.
+ * @returns {Array} - List of subjects for the subclass.
+ * @throws {Error} - If validation fails or no subjects found.
+ */
+exports.getSubjectsForSubclassService = async (data) => {
+  const { classLevelId, subclassLetter } = data;
+
+  // Validate classLevel
+  const classLevel = await ClassLevel.findById(classLevelId);
+  if (!classLevel) {
+    const error = new Error("ClassLevel not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Validate subclassLetter
+  const subclass = classLevel.subclasses.find((sub) => sub.letter === subclassLetter);
+  if (!subclass) {
+    const error = new Error(`Subclass ${subclassLetter} does not exist in ${classLevel.name}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let subjectIds = [];
+  if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+    // For SS 1–3, get subjects from subclass
+    subjectIds = subclass.subjects.map((s) => s.subject);
+  } else {
+    // For non-SS 1–3, get subjects from class level
+    subjectIds = classLevel.subjects;
+  }
+
+  if (subjectIds.length === 0) {
+    return [];
+  }
+
+  // Fetch subjects
+  const subjects = await Subject.find({ _id: { $in: subjectIds } });
+
+  return subjects;
+};
+
+/**
+ * Get Subjects for a Teacher service.
+ * @param {string} teacherId - The ID of the Teacher.
+ * @returns {Array} - List of subjects assigned to the teacher.
+ * @throws {Error} - If the teacher is not found or no subjects are assigned.
+ */
+exports.getSubjectsForTeacherService = async (teacherId) => {
+  // Validate teacher
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) {
+    const error = new Error("Teacher not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Find ClassLevels where the teacher is assigned
+  const classLevels = await ClassLevel.find({
+    "subclasses.subjects.teachers": teacherId,
+  });
+
+  // Collect unique subject IDs
+  const subjectIds = new Set();
+  classLevels.forEach((classLevel) => {
+    classLevel.subclasses.forEach((subclass) => {
+      subclass.subjects.forEach((subjectEntry) => {
+        if (subjectEntry.teachers.some((t) => t.toString() === teacherId)) {
+          subjectIds.add(subjectEntry.subject.toString());
+        }
+      });
+    });
+  });
+
+  if (subjectIds.size === 0) {
+    return [];
+  }
+
+  // Fetch subjects
+  const subjects = await Subject.find({ _id: { $in: Array.from(subjectIds) } });
+
+  return subjects;
 };

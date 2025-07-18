@@ -75,16 +75,48 @@ exports.createClassLevelService = async (data, userId, res) => {
  * Get all ClassLevels.
  * @param {Object} res - The response object.
  */
-exports.getAllClassesService = async (res) => {
+exports.getAllClassesService = async (query, res) => {
   try {
-    const classes = await ClassLevel.find().populate([
-      { path: 'createdBy', select: '_id firstName lastName email' },
-      { path: 'academicYear', select: '_id name' }, // Select only _id and name
-      { path: 'teachers', select: '_id firstName lastName email' },
-      { path: 'students', select: '_id firstName lastName email' },
-      { path: 'subclasses.subjects', select: '_id name' },
-    ]);
-    return classes;
+    const { page = 1, limit = 10, section, classLevels } = query;
+
+    // Convert page and limit to integers and ensure valid values
+    const pageNum = parseInt(page, 10) > 0 ? parseInt(page, 10) : 1;
+    const limitNum = parseInt(limit, 10) > 0 ? parseInt(limit, 10) : 10;
+    const skip = (pageNum - 1) * limitNum;
+
+    // Build filter object
+    const filter = {};
+    if (section) {
+      filter.section = section; // e.g., "Primary" or "Secondary"
+    }
+    if (classLevels) {
+      // Support multiple class levels as a comma-separated string or array
+      const levels = Array.isArray(classLevels)
+        ? classLevels
+        : classLevels.split(",").map((level) => level.trim());
+      if (levels.length > 0) {
+        filter.name = { $in: levels }; // e.g., ["JSS 1", "SS 1"]
+      }
+    }
+
+    // Fetch paginated and filtered classes
+    const classes = await ClassLevel.find(filter)
+      .skip(skip)
+      .limit(limitNum);
+
+    // Get total count for pagination metadata
+    const total = await ClassLevel.countDocuments(filter);
+
+    // Prepare response with pagination metadata
+    const result = {
+      total,
+      page: pageNum,
+      limit: limitNum,
+      totalPages: Math.ceil(total / limitNum),
+      data: classes,
+    };
+
+    return responseStatus(res, 200, "success", result);
   } catch (error) {
     console.error("Fetch All Classes Error:", error);
     return responseStatus(res, 500, "error", "An error occurred while fetching classes");
@@ -204,5 +236,57 @@ exports.deleteClassLevelService = async (id, res) => {
   } catch (error) {
     console.error("Delete ClassLevel Error:", error);
     return responseStatus(res, 500, "error", "An error occurred while deleting the class");
+  }
+};
+
+
+
+/**
+ * Get class data for sign-up purposes, including sections, class names, and subclass letters.
+ * @param {Object} res - The response object.
+ * @returns {Object} - Response with sections, class names, and subclass letters.
+ */
+
+exports.signUpClassDataService = async (res) => {
+  try {
+    // Fetch all class levels with required fields and populate subjects
+    const classLevels = await ClassLevel.find()
+      .select("section name subclasses.letter subclasses.subjects _id")
+      .populate({
+        path: "subclasses.subjects",
+        select: "_id name",
+      });
+
+    // Check if no class levels are found
+    if (!classLevels || classLevels.length === 0) {
+      return responseStatus(res, 404, "failed", "No class levels found");
+    }
+
+    // Map class levels to the desired structure
+    const sections = [...new Set(classLevels.map((cl) => cl.section))];
+    const classData = sections.map((section) => {
+      const classNames = classLevels
+        .filter((cl) => cl.section === section)
+        .map((cl) => ({
+          classLevel: cl._id.toString(), // Use _id as classLevel
+          name: cl.name, // Include name for UI display
+          subclasses: cl.subclasses.map((sub) => ({
+            letter: sub.letter,
+            subjects: sub.subjects.map((subject) => ({
+              _id: subject._id,
+              name: subject.name,
+            })),
+          })),
+        }));
+      return {
+        section,
+        classNames,
+      };
+    });
+
+    return responseStatus(res, 200, "success", classData);
+  } catch (error) {
+    console.error("Fetch SignUp Class Data Error:", error);
+    return responseStatus(res, 500, "error", "An error occurred while fetching class data for sign-up");
   }
 };

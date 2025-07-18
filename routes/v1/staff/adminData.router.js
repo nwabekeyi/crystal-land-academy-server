@@ -5,15 +5,20 @@ const isAdmin = require("../../../middlewares/isAdmin");
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 const {
   getSchoolFeesDataController,
-  getOutstandingFeesController, // New controller
-} = require("../../../controllers/staff/adminFinancialData.controller");
+  getOutstandingFeesController,
+  getAdminStatsController, // New controller
+} = require("../../../controllers/staff/adminData.controller");
 
 adminFinancialDataRouter
-  .route("/financial-data/school-fees")
+  .route("/admin-stats/school-fees")
   .get(isLoggedIn, isAdmin, getSchoolFeesDataController);
 
 adminFinancialDataRouter
-  .route("/financial-data/outstanding-fees")
+  .route("/admin-stats/outstanding-fees")
   .get(isLoggedIn, isAdmin, getOutstandingFeesController);
+
+adminFinancialDataRouter
+  .route("/admin-stats")
+  .get(isLoggedIn, isAdmin, getAdminStatsController);
 
 module.exports = adminFinancialDataRouter;

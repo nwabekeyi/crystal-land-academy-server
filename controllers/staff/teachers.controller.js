@@ -1,4 +1,3 @@
-// controllers/staff/teacher.controller.js
 const {
   adminRegisterTeacherService,
   teacherLoginService,
@@ -7,6 +6,9 @@ const {
   updateTeacherProfileService,
   adminUpdateTeacherProfileService,
   getAssignedClassesService,
+  adminDeleteTeacherService,
+  adminSuspendTeacherService,
+  adminUnsuspendTeacherService,
 } = require("../../services/staff/teachers.service");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
@@ -17,10 +19,9 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  */
 exports.adminRegisterTeacherController = async (req, res) => {
   try {
-    const result = await adminRegisterTeacherService(req.body, req.file, req.userAuth.id);
-    responseStatus(res, 201, "success", result);
+    await adminRegisterTeacherService(req.body, req.file, req.userAuth.id, res);
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    responseStatus(res, 400, "failed", error.message);
   }
 };
 
@@ -31,24 +32,24 @@ exports.adminRegisterTeacherController = async (req, res) => {
  */
 exports.teacherLoginController = async (req, res) => {
   try {
-    const result = await teacherLoginService(req.body);
-    responseStatus(res, 200, "success", result);
+    await teacherLoginService(req.body, res);
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    responseStatus(res, 400, "failed", error.message);
   }
 };
 
+
+
 /**
- * @desc Get all Teachers
- * @route GET /api/v1/teachers
- * @access Private
+ * @desc Get all Teachers by Admin (paginated and filtered)
+ * @route GET /api/v1/teachers/admin
+ * @access Private Admin only
  */
 exports.getAllTeachersController = async (req, res) => {
   try {
-    const teachers = await getAllTeachersService();
-    responseStatus(res, 200, "success", teachers);
+    await getAllTeachersService(req.query, res);
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    responseStatus(res, 400, "failed", error.message);
   }
 };
 
@@ -59,10 +60,9 @@ exports.getAllTeachersController = async (req, res) => {
  */
 exports.getTeacherProfileController = async (req, res) => {
   try {
-    const teacher = await getTeacherProfileService(req.params.id);
-    responseStatus(res, 200, "success", teacher);
+    await getTeacherProfileService(req.params.id, res);
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    responseStatus(res, 400, "failed", error.message);
   }
 };
 
@@ -73,10 +73,9 @@ exports.getTeacherProfileController = async (req, res) => {
  */
 exports.updateTeacherProfileController = async (req, res) => {
   try {
-    const result = await updateTeacherProfileService(req.body, req.file, req.userAuth.id);
-    responseStatus(res, 200, "success", result);
+    await updateTeacherProfileService(req.body, req.file, req.userAuth.id, res);
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    responseStatus(res, 400, "failed", error.message);
   }
 };
 
@@ -87,10 +86,9 @@ exports.updateTeacherProfileController = async (req, res) => {
  */
 exports.adminUpdateTeacherProfileController = async (req, res) => {
   try {
-    const result = await adminUpdateTeacherProfileService(req.body, req.file, req.params.id);
-    responseStatus(res, 200, "success", result);
+    await adminUpdateTeacherProfileService(req.body, req.file, req.params.id, res);
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    responseStatus(res, 400, "failed", error.message);
   }
 };
 
@@ -101,9 +99,63 @@ exports.adminUpdateTeacherProfileController = async (req, res) => {
  */
 exports.getAssignedClassesController = async (req, res) => {
   try {
-    const classes = await getAssignedClassesService(req.userAuth.id);
-    responseStatus(res, 200, "success", classes);
+    await getAssignedClassesService(req.userAuth.id, res);
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+
+/**
+ * @desc Admin Delete Teacher
+ * @route DELETE /api/v1/teachers/admin/delete/:teacherId
+ * @access Private Admin only
+ */
+exports.adminDeleteTeacherController = async (req, res) => {
+  try {
+    await adminDeleteTeacherService(req.params.teacherId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+
+/**
+ * @desc Admin Suspend Teacher
+ * @route PATCH /api/v1/teachers/suspend/:teacherId
+ * @access Private Admin only
+ */
+exports.adminSuspendTeacherController = async (req, res) => {
+  try {
+    await adminSuspendTeacherService(req.params.teacherId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Admin Withdraw Teacher
+ * @route PATCH /api/v1/teachers/withdraw/:teacherId
+ * @access Private Admin only
+ */
+exports.adminWithdrawTeacherController = async (req, res) => {
+  try {
+    await adminWithdrawTeacherService(req.params.teacherId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+
+/**
+ * @desc Admin Unsuspend Teacher
+ * @route PATCH /api/v1/teachers/unsuspend/:teacherId
+ * @access Private Admin only
+ */
+exports.adminUnsuspendTeacherController = async (req, res) => {
+  try {
+    await adminUnsuspendTeacherService(req.params.teacherId, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
   }
 };

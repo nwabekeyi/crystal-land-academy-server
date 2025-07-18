@@ -1,10 +1,11 @@
-// controllers/academic/subject.controller.js
 const {
   createSubjectService,
   getAllSubjectsService,
   getSubjectsService,
   updateSubjectService,
   deleteSubjectService,
+  getSubjectsForSubclassService,
+  getSubjectsForTeacherService,
 } = require("../../services/academic/subject.service");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
@@ -73,6 +74,34 @@ exports.deleteSubjectController = async (req, res) => {
   try {
     const result = await deleteSubjectService(req.params.id);
     responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Get Subjects for a Subclass
+ * @route POST /api/v1/subjects/subclass
+ * @access Private
+ */
+exports.getSubjectsForSubclassController = async (req, res) => {
+  try {
+    const subjects = await getSubjectsForSubclassService(req.body);
+    responseStatus(res, 200, "success", subjects);
+  } catch (error) {
+    responseStatus(res, error.statusCode || 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Get Subjects for a Teacher
+ * @route GET /api/v1/subjects/teacher/:teacherId
+ * @access Private
+ */
+exports.getSubjectsForTeacherController = async (req, res) => {
+  try {
+    const subjects = await getSubjectsForTeacherService(req.params.teacherId);
+    responseStatus(res, 200, "success", subjects);
   } catch (error) {
     responseStatus(res, error.statusCode || 500, "failed", error.message);
   }

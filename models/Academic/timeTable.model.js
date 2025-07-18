@@ -29,7 +29,6 @@ const timetableSchema = new mongoose.Schema(
     classLevel: { type: ObjectId, ref: 'ClassLevel', required: true, index: true },
     subclassLetter: { type: String, required: true, match: /^[A-Z]$/ },
     subject: { type: ObjectId, ref: 'Subject', required: true },
-    teacher: { type: ObjectId, ref: 'Teacher', required: true },
     dayOfWeek: {
       type: String,
       enum: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'],

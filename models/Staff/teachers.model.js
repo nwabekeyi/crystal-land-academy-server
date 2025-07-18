@@ -105,11 +105,6 @@ const teacherSchema = new mongoose.Schema(
         required: false, // Subjects are optional and allowed for all classes
       },
     ],
-    applicationStatus: {
-      type: String,
-      enum: ["pending", "approved", "rejected"],
-      default: "pending",
-    },
     teachingAssignments: [teachingAssignmentSchema],
     gender: {
       type: String,

@@ -4,40 +4,76 @@ const Student = require('../../models/Students/students.model');
 const ClassLevel = require('../../models/Academic/class.model');
 const AcademicTerm = require('../../models/Academic/academicTerm.model');
 const AcademicYear = require('../../models/Academic/academicYear.model');
+const Timetable = require('../../models/Academic/timeTable.model');
+const Subject = require('../../models/Academic/subject.model');
 
-const getNextClass = async (teacherId, classLevels) => {
-  // If no classLevels, return null
-  if (!classLevels || !classLevels.length) {
+const getNextClass = async (teacherId) => {
+  try {
+    // Get current academic year
+    const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
+    if (!currentAcademicYear) {
+      return null;
+    }
+
+    const now = new Date();
+    const currentDay = now.toLocaleString('en-US', { weekday: 'long' });
+    const currentTime = now.toTimeString().slice(0, 5); // HH:mm format
+
+    // Find subjects where the teacher is assigned
+    const subjects = await Subject.find({
+      'classLevelSubclasses.teachers': teacherId,
+    }).select('_id name classLevelSubclasses');
+
+    if (!subjects || subjects.length === 0) {
+      return null;
+    }
+
+    // Collect classLevel and subclassLetter combinations for the teacher
+    const classSubclasses = [];
+    subjects.forEach((subject) => {
+      subject.classLevelSubclasses.forEach((cls) => {
+        if (cls.teachers.some((id) => id.toString() === teacherId.toString())) {
+          classSubclasses.push({
+            classLevel: cls.classLevel,
+            subclassLetter: cls.subclassLetter,
+            subject: subject._id,
+          });
+        }
+      });
+    });
+
+    if (classSubclasses.length === 0) {
+      return null;
+    }
+
+    // Find the next timetable entry
+    const timetable = await Timetable.findOne({
+      $or: classSubclasses.map(({ classLevel, subclassLetter, subject }) => ({
+        classLevel,
+        subclassLetter,
+        subject,
+        academicYear: currentAcademicYear._id,
+        dayOfWeek: currentDay,
+        startTime: { $gt: currentTime },
+      })),
+    })
+      .sort({ startTime: 1 }) // Get the earliest startTime after current time
+      .populate('subject', 'name');
+
+    if (!timetable) {
+      return null;
+    }
+
+    return {
+      subject: timetable.subject?.name || 'Unknown',
+      date: now.toISOString().split('T')[0],
+      time: timetable.startTime,
+      location: timetable.location,
+    };
+  } catch (error) {
+    console.error('Error in getNextClass:', error);
     return null;
   }
-
-  const now = new Date();
-  const currentDay = now.toLocaleString('en-US', { weekday: 'long' });
-  const currentTime = now.toTimeString().slice(0, 5); // HH:mm format
-
-  for (const classLevel of classLevels) {
-    for (const subclass of classLevel.subclasses) {
-      const timetable = subclass.timetables.find(
-        (tt) =>
-          tt.teacher.toString() === teacherId.toString() &&
-          tt.dayOfWeek === currentDay &&
-          tt.startTime > currentTime
-      );
-
-      if (timetable) {
-        const subject = await mongoose.model('Subject').findById(timetable.subject);
-        return {
-          subject: subject?.name || 'Unknown',
-          date: now.toISOString().split('T')[0],
-          time: timetable.startTime,
-          location: timetable.location,
-        };
-      }
-    }
-  }
-
-  // Return null if no upcoming class is found
-  return null;
 };
 
 const getStudentPerformance = async (classLevels) => {
@@ -72,7 +108,7 @@ const getStudentPerformance = async (classLevels) => {
     }));
 
   const leastActiveStudents = students
-    .sort((a, b) => a.activityRate - b.activityRate)
+    .sort((a, b) => a.activityRate - a.activityRate)
     .slice(0, 3)
     .map((s) => ({
       firstName: s.firstName,
@@ -126,7 +162,7 @@ const getTeacherDashboardData = async (teacherId) => {
     const assignmentSubmissionRate = classLevels.length ? { totalAssignmentRate: 85 } : { totalAssignmentRate: 0 }; // Replace with actual logic
 
     // Find next class from timetable
-    const nextClass = await getNextClass(teacherId, classLevels);
+    const nextClass = await getNextClass(teacherId);
 
     // Get top and least active students
     const { topStudents, leastActiveStudents } = await getStudentPerformance(classLevels);

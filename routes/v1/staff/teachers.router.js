@@ -1,4 +1,3 @@
-// routes/teachers.js
 const express = require("express");
 const teachersRouter = express.Router();
 
@@ -6,7 +5,7 @@ const teachersRouter = express.Router();
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 const isAdmin = require("../../../middlewares/isAdmin");
 const isTeacher = require("../../../middlewares/isTeacher");
-const { createMulter } = require("../../../middlewares/fileUpload"); // Import Multer config
+const { createMulter } = require("../../../middlewares/fileUpload");
 
 const upload = createMulter(); // Initialize Multer
 
@@ -19,7 +18,12 @@ const {
   updateTeacherProfileController,
   adminUpdateTeacherProfileController,
   getAssignedClassesController,
+  adminDeleteTeacherController,
+  adminSuspendTeacherController, // Added
+  adminWithdrawTeacherController,
+  adminUnsuspendTeacherController, // Added
 } = require("../../../controllers/staff/teachers.controller");
+const { adminUnsuspendStudentService } = require("../../../services/students/students.service");
 
 // Create teacher
 teachersRouter
@@ -27,7 +31,7 @@ teachersRouter
   .post(
     isLoggedIn,
     isAdmin,
-    upload.single('profilePicture'), // Upload profile picture
+    upload.single('profilePicture'),
     adminRegisterTeacherController
   );
 
@@ -41,32 +45,52 @@ teachersRouter
 
 // Get teacher profile
 teachersRouter
-  .route("/teacher/profile/:teacherId")
+  .route("/teachers/profile/:teacherId")
   .get(isLoggedIn, isTeacher, getTeacherProfileController);
 
 // Teacher update own profile
 teachersRouter
-  .route("/teacher/update")
+  .route("/teachers")
   .patch(
     isLoggedIn,
     isTeacher,
-    upload.single('photo'), // Optional profile picture update
+    upload.single('photo'),
     updateTeacherProfileController
   );
 
 // Admin update teacher profile
 teachersRouter
-  .route("/teacher/:id/update")
+  .route("/teachers/update/:id")
   .patch(
     isLoggedIn,
     isAdmin,
-    upload.single('photo'), // Upload profile picture
+    upload.single('photo'),
     adminUpdateTeacherProfileController
   );
 
 // Get assigned classes for a teacher
 teachersRouter
-  .route("/class-levels/assigned")
+  .route("teachers/class-levels/assigned")
   .get(isLoggedIn, isTeacher, getAssignedClassesController);
+
+// Delete teacher by admin
+teachersRouter
+  .route("/teachers/delete/:teacherId")
+  .delete(isLoggedIn, isAdmin, adminDeleteTeacherController);
+
+// Suspend teacher by admin
+teachersRouter
+  .route("/teachers/suspend/:teacherId")
+  .patch(isLoggedIn, isAdmin, adminSuspendTeacherController);
+
+  // Unsuspend teacher by admin
+teachersRouter
+.route("/teachers/unsuspend/:teacherId")
+.patch(isLoggedIn, isAdmin, adminUnsuspendTeacherController);
+
+// Withdraw teacher by admin
+teachersRouter
+  .route("/teachers/withdraw/:teacherId")
+  .patch(isLoggedIn, isAdmin, adminWithdrawTeacherController);
 
 module.exports = teachersRouter;
