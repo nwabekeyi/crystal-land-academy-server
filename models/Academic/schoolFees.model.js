@@ -60,17 +60,17 @@ const studentPaymentSchema = new Schema(
   {
     studentId: {
       type: ObjectId,
+      ref: "Student",
       required: true,
-      ref: "Student"
     },
     classLevelId: {
       type: ObjectId,
+      ref: "ClassLevel",
       required: true,
-      ref: 'ClassLevel'
     },
     academicYear: {
       type: ObjectId,
-      ref: 'AcademicYear',
+      ref: "AcademicYear",
       required: true,
     },
     section: {
