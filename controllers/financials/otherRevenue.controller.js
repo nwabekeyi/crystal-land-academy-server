@@ -3,12 +3,13 @@ const otherRevenueService = require('../../services/financials/otherRevenue.serv
 const createOtherRevenueController = async (req, res) => {
   try {
     const { amount, source, date, description } = req.body;
+    console.log
     const otherRevenue = await otherRevenueService.createOtherRevenue({
       amount,
       source,
       date: new Date(date),
       description,
-      createdBy: req.user._id, // Assumes user is authenticated
+      createdBy: req.userAuth.id, // Assumes user is authenticated
     });
     res.status(201).json({
       status: 'success',

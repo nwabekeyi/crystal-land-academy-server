@@ -5,7 +5,7 @@ const createOtherRevenue = async (data) => {
   return await otherRevenue.save();
 };
 
-const getOtherRevenues = async ({ page, limit, sortBy, sortDirection }) => {
+const getOtherRevenues = async ({ page, limit, sortBy, sortDirection}) => {
   const query = {};
   const skip = (page - 1) * limit;
   const sort = { [sortBy]: sortDirection === 'asc' ? 1 : -1 };
