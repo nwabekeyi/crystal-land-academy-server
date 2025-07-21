@@ -13,11 +13,11 @@ const {
 
 academicTermRouter
   .route("/academic-term")
-  .get(isLoggedIn, isAdmin, getAcademicTermsController)
+  .get(isLoggedIn, getAcademicTermsController)
   .post(isLoggedIn, isAdmin, createAcademicTermController);
 academicTermRouter
   .route("/academic-term/:id")
-  .get(isLoggedIn, isAdmin, getAcademicTermController)
+  .get(isLoggedIn,  getAcademicTermController)
   .patch(isLoggedIn, isAdmin, updateAcademicTermController)
   .delete(isLoggedIn, isAdmin, deleteAcademicTermController);
 module.exports = academicTermRouter;

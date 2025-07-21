@@ -2,9 +2,9 @@ const mongoose = require('mongoose');
 
 const expenditureSchema = new mongoose.Schema(
   {
-    category: {
+    description: {
       type: String,
-      required: [true, 'Category is required'],
+      required: [true, 'Description is required'],
       trim: true,
     },
     amount: {

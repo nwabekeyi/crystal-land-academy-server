@@ -2,12 +2,12 @@ const expenditureService = require('../../services/financials/expenditure.servic
 
 const createExpenditureController = async (req, res) => {
   try {
-    const { category, amount, date } = req.body;
+    const { description, amount, date } = req.body;
     const expenditure = await expenditureService.createExpenditure({
-      category,
+      description,
       amount,
       date: new Date(date),
-      createdBy: req.user._id,
+      createdBy: req.userAuth.id,
     });
     res.status(201).json({
       status: 'success',
@@ -17,6 +17,7 @@ const createExpenditureController = async (req, res) => {
       },
     });
   } catch (error) {
+    console.log(error)
     res.status(400).json({
       status: 'error',
       message: error.message,
