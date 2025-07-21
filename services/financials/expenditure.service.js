@@ -6,6 +6,7 @@ const createExpenditure = async (data) => {
 };
 
 const getExpenditures = async ({ page, limit, sortBy, sortDirection }) => {
+  console.log('called')
   const query = {};
   const skip = (page - 1) * limit;
   const sort = { [sortBy]: sortDirection === 'asc' ? 1 : -1 };
