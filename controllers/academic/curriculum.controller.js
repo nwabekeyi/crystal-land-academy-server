@@ -11,13 +11,13 @@ const {
 /**
  * @desc Create Curriculum
  * @route POST /api/v1/curriculum
- * @access Private (admin)
+ * @access Public
  */
 exports.createCurriculumController = async (req, res) => {
   try {
-    await createCurriculumService(req.body, req.userAuth.id, res);
+    await createCurriculumService(req.body, res);
   } catch (error) {
-    console.log(error)
+    console.error('Controller error creating curriculum:', error.stack);
     responseStatus(res, 400, "failed", error.message);
   }
 };
@@ -25,13 +25,14 @@ exports.createCurriculumController = async (req, res) => {
 /**
  * @desc Get all Curricula
  * @route GET /api/v1/curriculum
- * @access Private (admin)
+ * @access Public
  */
 exports.getAllCurriculaController = async (req, res) => {
   try {
     const result = await getAllCurriculaService(req.query);
     responseStatus(res, 200, "success", result);
   } catch (error) {
+    console.error('Controller error fetching curricula:', error.stack);
     responseStatus(res, 400, "failed", error.message);
   }
 };
@@ -39,7 +40,7 @@ exports.getAllCurriculaController = async (req, res) => {
 /**
  * @desc Get single Curriculum
  * @route GET /api/v1/curriculum/:id
- * @access Private (admin)
+ * @access Public
  */
 exports.getCurriculumByIdController = async (req, res) => {
   try {
@@ -49,6 +50,7 @@ exports.getCurriculumByIdController = async (req, res) => {
     }
     responseStatus(res, 200, "success", result);
   } catch (error) {
+    console.error('Controller error fetching curriculum:', error.stack);
     responseStatus(res, 400, "failed", error.message);
   }
 };
@@ -56,12 +58,13 @@ exports.getCurriculumByIdController = async (req, res) => {
 /**
  * @desc Update Curriculum
  * @route PATCH /api/v1/curriculum/:id
- * @access Private (admin)
+ * @access Public
  */
 exports.updateCurriculumController = async (req, res) => {
   try {
-    await updateCurriculumService(req.body, req.params.id, req.userAuth.id, res);
+    await updateCurriculumService(req.body, req.params.id, res);
   } catch (error) {
+    console.error('Controller error updating curriculum:', error.stack);
     responseStatus(res, 400, "failed", error.message);
   }
 };
@@ -69,12 +72,13 @@ exports.updateCurriculumController = async (req, res) => {
 /**
  * @desc Delete Curriculum
  * @route DELETE /api/v1/curriculum/:id
- * @access Private (admin)
+ * @access Public
  */
 exports.deleteCurriculumController = async (req, res) => {
   try {
     await deleteCurriculumService(req.params.id, res);
   } catch (error) {
+    console.error('Controller error deleting curriculum:', error.stack);
     responseStatus(res, 400, "failed", error.message);
   }
 };

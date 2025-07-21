@@ -1,6 +1,5 @@
 // services/academic/curriculum.service.js
 const Curriculum = require("../../models/Academic/curriculum.model");
-const Admin = require("../../models/Staff/admin.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
 /**
@@ -12,11 +11,10 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  * @param {string} data.classLevelId - The ID of the class level.
  * @param {string} data.courseDuration - The duration of the course.
  * @param {Array} data.topics - Array of topics with topic, description, duration, and resources.
- * @param {string} userId - The ID of the admin creating the Curriculum.
  * @param {Object} res - The response object.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.createCurriculumService = async (data, userId, res) => {
+exports.createCurriculumService = async (data, res) => {
   const { subjectId, academicTermId, classLevelId, courseDuration, topics } = data;
 
   // Check if the Curriculum already exists for this subject, term, and class level
@@ -32,15 +30,7 @@ exports.createCurriculumService = async (data, userId, res) => {
     classLevelId,
     courseDuration,
     topics,
-    createdBy: userId,
   });
-
-  // Push the curriculum ID to admin
-  const admin = await Admin.findById(userId);
-  if (!admin) return responseStatus(res, 401, "failed", "Admin does not exist");
-  admin.curricula = admin.curricula || []; // Initialize if undefined
-  admin.curricula.push(curriculumCreated._id);
-  await admin.save();
 
   // Populate the response
   const populatedCurriculum = await Curriculum.findById(curriculumCreated._id)
@@ -48,7 +38,6 @@ exports.createCurriculumService = async (data, userId, res) => {
     .populate('academicTermId', 'name')
     .populate('classLevelId', 'name');
 
-  // Send the response
   return responseStatus(res, 200, "success", populatedCurriculum);
 };
 
@@ -94,11 +83,10 @@ exports.getCurriculumByIdService = async (id) => {
  * @param {string} data.courseDuration - The updated duration of the course.
  * @param {Array} data.topics - Updated array of topics.
  * @param {string} id - The ID of the Curriculum to be updated.
- * @param {string} userId - The ID of the admin updating the Curriculum.
  * @param {Object} res - The response object.
  * @returns {Object} - The response object indicating success or failure.
  */
-exports.updateCurriculumService = async (data, id, userId, res) => {
+exports.updateCurriculumService = async (data, id, res) => {
   const { subjectId, academicTermId, classLevelId, courseDuration, topics } = data;
 
   // Check if another curriculum exists with the updated subject, term, and class
@@ -106,7 +94,7 @@ exports.updateCurriculumService = async (data, id, userId, res) => {
     subjectId,
     academicTermId,
     classLevelId,
-    _id: { $ne: id }, // Exclude the current curriculum
+    _id: { $ne: id },
   });
   if (curriculumFound) {
     return responseStatus(res, 402, "failed", "Curriculum already exists for this subject, term, and class");
@@ -121,7 +109,6 @@ exports.updateCurriculumService = async (data, id, userId, res) => {
       classLevelId,
       courseDuration,
       topics,
-      createdBy: userId,
       updatedAt: Date.now(),
     },
     { new: true }
@@ -134,7 +121,6 @@ exports.updateCurriculumService = async (data, id, userId, res) => {
     return responseStatus(res, 404, "failed", "Curriculum not found");
   }
 
-  // Send the response
   return responseStatus(res, 200, "success", curriculum);
 };
 
@@ -149,13 +135,6 @@ exports.deleteCurriculumService = async (id, res) => {
   const curriculum = await Curriculum.findByIdAndDelete(id);
   if (!curriculum) {
     return responseStatus(res, 404, "failed", "Curriculum not found");
-  }
-
-  // Remove curriculum ID from admin
-  const admin = await Admin.findOne({ curricula: id });
-  if (admin) {
-    admin.curricula = admin.curricula.filter(curriculumId => curriculumId.toString() !== id);
-    await admin.save();
   }
 
   return responseStatus(res, 200, "success", "Curriculum deleted");

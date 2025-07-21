@@ -13,13 +13,13 @@ const {
 
 curriculumRouter
   .route("/curriculum")
-  .get(isLoggedIn, getAllCurriculaController)
-  .post(isLoggedIn, isAdmin, createCurriculumController);
+  .get(getAllCurriculaController)
+  .post(createCurriculumController);
 
 curriculumRouter
   .route("/curriculum/:id")
-  .get(isLoggedIn, getCurriculumByIdController)
-  .patch(isLoggedIn, isAdmin, updateCurriculumController)
-  .delete(isLoggedIn, isAdmin, deleteCurriculumController);
+  .get(getCurriculumByIdController)
+  .patch(isAdmin, updateCurriculumController)
+  .delete(deleteCurriculumController);
 
 module.exports = curriculumRouter;
