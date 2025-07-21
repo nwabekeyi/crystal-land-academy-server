@@ -232,14 +232,14 @@ ClassLevelSchema.pre("validate", async function (next) {
         if (new Set(studentIds).size !== studentIds.length) {
           return next(new Error(`Duplicate students in subclass ${subclass.letter}`));
         }
-        // for (const student of subclass.students) {
-        //   const studentExists = await mongoose
-        //     .model("Student")
-        //     .exists({ _id: student.id });
-        //   if (!studentExists) {
-        //     return next(new Error(`Invalid student ID ${student.id} in subclass ${subclass.letter}`));
-        //   }
-        // }
+        for (const student of subclass.students) {
+          const studentExists = await mongoose
+            .model("Student")
+            .exists({ _id: student.id });
+          if (!studentExists) {
+            return next(new Error(`Invalid student ID ${student.id} in subclass ${subclass.letter}`));
+          }
+        }
       }
     }
 

@@ -17,7 +17,7 @@ const sendEmail = async ({ to, templateId, dynamicTemplateData, subject }) => {
     to,
     from: {
       email: senderEmail,
-      name: 'Crystalland academy', // Use provided senderName or default to 'Crystal Land Academy'
+      name: `Crystal-land Int'l Academy`, // Use provided senderName or default to 'Crystal Land Academy'
     },
     templateId,
     dynamicTemplateData: {

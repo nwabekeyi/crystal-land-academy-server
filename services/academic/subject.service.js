@@ -1,22 +1,54 @@
 const Subject = require("../../models/Academic/subject.model");
+const SubjectName = require("../../models/Academic/subjectName.model");
 const ClassLevel = require("../../models/Academic/class.model");
-const AcademicYear = require("../../models/Academic/academicYear.model");
 const Teacher = require("../../models/Staff/teachers.model");
 const mongoose = require("mongoose");
 
 /**
- * Create Subject service.
- * @param {Object} data - The data containing information about the Subject.
- * @returns {Object} - The created subject.
- * @throws {Error} - If validation fails or an error occurs.
+ * Ensure mandatory subjects (Mathematics and English) exist in SubjectName
+ * @returns {Array} - IDs of Mathematics and English subject names
+ */
+async function ensureMandatorySubjects() {
+  const mandatorySubjects = [
+    { name: "Mathematics", description: "Mandatory subject: Mathematics" },
+    { name: "English", description: "Mandatory subject: English" },
+  ];
+
+  const subjectNameIds = [];
+  for (const subj of mandatorySubjects) {
+    let subjectName = await SubjectName.findOne({ name: subj.name });
+    if (!subjectName) {
+      subjectName = await SubjectName.create({
+        name: subj.name,
+        description: subj.description,
+      });
+    }
+    subjectNameIds.push(subjectName._id);
+  }
+  return subjectNameIds;
+}
+
+/**
+ * Create Subject service
+ * @param {Object} data - The data containing information about the Subject
+ * @returns {Object} - The created subject
+ * @throws {Error} - If validation fails or an error occurs
  */
 exports.createSubjectService = async (data) => {
-  const { name, description, academicYear, classLevelSubclasses } = data;
+  const { name, description, classLevelSubclasses } = data;
 
-  // Check if the Subject already exists for the same AcademicYear
-  const subjectFound = await Subject.findOne({ name, academicYear });
+  // Validate name (SubjectName ID)
+  const subjectName = await SubjectName.findById(name);
+  if (!subjectName) {
+    const error = new Error("SubjectName does not exist");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Check if the Subject already exists with this SubjectName
+  const subjectFound = await Subject.findOne({ name });
   if (subjectFound) {
-    const error = new Error("Subject already exists for this Academic Year");
+    const error = new Error("Subject already exists with this name");
     error.statusCode = 409;
     throw error;
   }
@@ -89,7 +121,6 @@ exports.createSubjectService = async (data) => {
   const subjectCreated = await Subject.create({
     name,
     description,
-    academicYear,
     classLevelSubclasses: sanitizedClassLevelSubclasses,
   });
 
@@ -98,7 +129,7 @@ exports.createSubjectService = async (data) => {
     for (const cls of sanitizedClassLevelSubclasses) {
       const classLevel = await ClassLevel.findById(cls.classLevel);
       if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
-        // Add subject to specific subclass for SS 1–3
+        // Add subject to specific subclass for SS
         await ClassLevel.updateOne(
           {
             _id: cls.classLevel,
@@ -117,7 +148,7 @@ exports.createSubjectService = async (data) => {
           }
         );
       } else {
-        // Add subject to class-level subjects and all subclasses for non-SS 1–3
+        // Add subject to class-level subjects and all subclasses for Primary/JSS
         await ClassLevel.updateOne(
           { _id: cls.classLevel },
           {
@@ -149,14 +180,14 @@ exports.createSubjectService = async (data) => {
 };
 
 /**
- * Update Subject data service.
- * @param {Object} data - The data containing updated information about the Subject.
- * @param {string} id - The ID of the Subject to be updated.
- * @returns {Object} - The updated subject.
- * @throws {Error} - If validation fails or an error occurs.
+ * Update Subject service
+ * @param {Object} data - The data containing updated information about the Subject
+ * @param {string} id - The ID of the Subject to update
+ * @returns {Object} - The updated subject
+ * @throws {Error} - If validation fails or an error occurs
  */
 exports.updateSubjectService = async (data, id) => {
-  const { name, description, academicYear, classLevelSubclasses } = data;
+  const { name, description, classLevelSubclasses } = data;
 
   // Check if the Subject exists
   const subject = await Subject.findById(id);
@@ -166,16 +197,25 @@ exports.updateSubjectService = async (data, id) => {
     throw error;
   }
 
-  // Check if the updated name already exists for the same AcademicYear
-  const subjectFound = await Subject.findOne({
-    name,
-    academicYear: academicYear || subject.academicYear,
-    _id: { $ne: id },
-  });
-  if (subjectFound) {
-    const error = new Error("Subject already exists for this Academic Year");
-    error.statusCode = 409;
-    throw error;
+  // Validate name (SubjectName ID) if provided
+  if (name) {
+    const subjectName = await SubjectName.findById(name);
+    if (!subjectName) {
+      const error = new Error("SubjectName does not exist");
+      error.statusCode = 404;
+      throw error;
+    }
+
+    // Check if the updated name already exists for another Subject
+    const subjectFound = await Subject.findOne({
+      name,
+      _id: { $ne: id },
+    });
+    if (subjectFound) {
+      const error = new Error("Subject already exists with this name");
+      error.statusCode = 409;
+      throw error;
+    }
   }
 
   // Validate and sanitize classLevelSubclasses
@@ -247,10 +287,9 @@ exports.updateSubjectService = async (data, id) => {
     for (const cls of subject.classLevelSubclasses) {
       const classLevel = await ClassLevel.findById(cls.classLevel);
       if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
-        const newSubclasses =
-          sanitizedClassLevelSubclasses
-            .filter((c) => c.classLevel.toString() === cls.classLevel.toString())
-            .map((c) => c.subclassLetter) || [];
+        const newSubclasses = sanitizedClassLevelSubclasses
+          .filter((c) => c.classLevel.toString() === cls.classLevel.toString())
+          .map((c) => c.subclassLetter);
         if (!newSubclasses.includes(cls.subclassLetter)) {
           await ClassLevel.updateOne(
             {
@@ -354,9 +393,8 @@ exports.updateSubjectService = async (data, id) => {
   const updatedSubject = await Subject.findByIdAndUpdate(
     id,
     {
-      name,
+      name: name || subject.name,
       description,
-      academicYear: academicYear || subject.academicYear,
       classLevelSubclasses: sanitizedClassLevelSubclasses,
     },
     { new: true }
@@ -366,21 +404,22 @@ exports.updateSubjectService = async (data, id) => {
 };
 
 /**
- * Get all Subjects service.
- * @returns {Array} - List of all subjects.
+ * Get all Subjects service
+ * @returns {Array} - List of all subjects
  */
 exports.getAllSubjectsService = async () => {
-  return await Subject.find();
+
+  return await Subject.find().populate("name");
 };
 
 /**
- * Get a single Subject service.
- * @param {string} id - The ID of the Subject to retrieve.
- * @returns {Object} - The requested subject.
- * @throws {Error} - If the subject is not found.
+ * Get a single Subject service
+ * @param {string} id - The ID of the Subject to retrieve
+ * @returns {Object} - The requested subject
+ * @throws {Error} - If the subject is not found
  */
 exports.getSubjectsService = async (id) => {
-  const subject = await Subject.findById(id);
+  const subject = await Subject.findById(id).populate("name");
   if (!subject) {
     const error = new Error("Subject not found");
     error.statusCode = 404;
@@ -390,10 +429,10 @@ exports.getSubjectsService = async (id) => {
 };
 
 /**
- * Delete Subject service.
- * @param {string} id - The ID of the Subject to delete.
- * @returns {string} - Success message.
- * @throws {Error} - If the subject is not found.
+ * Delete Subject service
+ * @param {string} id - The ID of the Subject to delete
+ * @returns {string} - Success message
+ * @throws {Error} - If the subject is not found
  */
 exports.deleteSubjectService = async (id) => {
   const subject = await Subject.findById(id);
@@ -456,14 +495,33 @@ exports.deleteSubjectService = async (id) => {
   return "Subject deleted successfully";
 };
 
+
 /**
- * Get Subjects for a Subclass service.
- * @param {Object} data - The data containing classLevelId and subclassLetter.
- * @returns {Array} - List of subjects for the subclass.
- * @throws {Error} - If validation fails or no subjects found.
+ * Get Subjects for a Subclass service or all subjects if no filters provided
+ * @param {Object} data - The data containing optional classLevelId and subclassLetter
+ * @returns {Array} - List of subjects for the subclass or all subjects
+ * @throws {Error} - If validation fails
  */
-exports.getSubjectsForSubclassService = async (data) => {
+exports.getSubjectsForSubclassService = async (data = {}) => {
   const { classLevelId, subclassLetter } = data;
+
+  // If no classLevelId or subclassLetter, fetch all subjects
+  if (!classLevelId || !subclassLetter) {
+    const subjects = await Subject.find().populate({
+      path: 'name',
+      select: 'name', // Only fetch the name field from SubjectName
+    });
+
+    // Verify all subjects have a valid name reference
+    // const invalidSubjects = subjects.filter(subject => !subject.name);
+    // if (invalidSubjects.length > 0) {
+    //   const error = new Error(`Some subjects have missing or invalid name references: ${invalidSubjects.map(s => s._id).join(', ')}`);
+    //   error.statusCode = 400;
+    //   throw error;
+    // }
+
+    return subjects;
+  }
 
   // Validate classLevel
   const classLevel = await ClassLevel.findById(classLevelId);
@@ -483,28 +541,48 @@ exports.getSubjectsForSubclassService = async (data) => {
 
   let subjectIds = [];
   if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
-    // For SS 1–3, get subjects from subclass
+    // For SS, get subjects from subclass
     subjectIds = subclass.subjects.map((s) => s.subject);
   } else {
-    // For non-SS 1–3, get subjects from class level
-    subjectIds = classLevel.subjects;
+    // For Primary/JSS, get subjects from class level
+    subjectIds = classLevel.subjects || [];
   }
 
   if (subjectIds.length === 0) {
     return [];
   }
 
-  // Fetch subjects
-  const subjects = await Subject.find({ _id: { $in: subjectIds } });
+  // Validate subjectIds
+  for (const subjectId of subjectIds) {
+    if (!mongoose.Types.ObjectId.isValid(subjectId)) {
+      const error = new Error(`Invalid subject ID: ${subjectId}`);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  // Fetch subjects and ensure name is populated
+  const subjects = await Subject.find({ _id: { $in: subjectIds } }).populate({
+    path: 'name',
+    select: 'name', // Only fetch the name field from SubjectName
+  });
+
+  // Verify all subjects have a valid name reference
+  // const invalidSubjects = subjects.filter(subject => !subject.name);
+  // if (invalidSubjects.length > 0) {
+  //   const error = new Error(`Some subjects have missing or invalid name references: ${invalidSubjects.map(s => s._id).join(', ')}`);
+  //   error.statusCode = 400;
+  //   throw error;
+  // }
 
   return subjects;
 };
 
 /**
- * Get Subjects for a Teacher service.
- * @param {string} teacherId - The ID of the Teacher.
- * @returns {Array} - List of subjects assigned to the teacher.
- * @throws {Error} - If the teacher is not found or no subjects are assigned.
+ * Get Subjects for a Teacher service
+ * @param {string} teacherId - The ID of the Teacher
+ * @returns {Array} - List of subjects assigned to the teacher
+ * @throws {Error} - If the teacher is not found or no subjects are assigned
  */
 exports.getSubjectsForTeacherService = async (teacherId) => {
   // Validate teacher
@@ -537,7 +615,7 @@ exports.getSubjectsForTeacherService = async (teacherId) => {
   }
 
   // Fetch subjects
-  const subjects = await Subject.find({ _id: { $in: Array.from(subjectIds) } });
+  const subjects = await Subject.find({ _id: { $in: Array.from(subjectIds) } }).populate("name");
 
   return subjects;
 };

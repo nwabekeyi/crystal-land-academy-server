@@ -11,6 +11,7 @@ const {
   signUpClassDataController,
   getClassLevelsAndSubclassesForTeacherController,
   assignTeachersToClassController,
+  addSubclassToClassLevelController,
 } = require("../../../controllers/academic/class.controller");
 
 classRouter
@@ -31,5 +32,9 @@ classRouter
 classRouter
   .route("/class-levels/:id/assign-teachers")
   .patch(isLoggedIn, isAdmin, assignTeachersToClassController);
+
+  classRouter
+  .route("/class-levels/:id/add-subclass")
+  .post(isLoggedIn, isAdmin, addSubclassToClassLevelController);
 
 module.exports = classRouter;

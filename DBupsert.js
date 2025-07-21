@@ -1,46 +1,141 @@
-// const mongoose = require("mongoose");
-// const dotenv = require("dotenv");
-// const Teacher = require("./models/Staff/teachers.model"); // Adjust the path as needed
-// const Review = require("./models/review/index"); // Adjust path as needed
+const mongoose = require("mongoose");
+const dotenv = require("dotenv");
+const ClassLevel = require("./models/Academic/class.model"); // Adjust path as needed
+const Subject = require("./models/Academic/subject.model"); // Adjust path as needed
+const { createSubjectService } = require("./services/academic/subject.service"); // Adjust path as needed
 
-// dotenv.config();
+dotenv.config();
 
-// const MONGO_URI = process.env.DB || 'mongodb://localhost:27017/your_database_name';
+const MONGO_URI = process.env.DB || "mongodb://localhost:27017/your_database_name";
 
-// async function updateTeachersWithRatingAndReviews() {
-//   try {
-//     // Connect to MongoDB
-//     await mongoose.connect(MONGO_URI, {
-//       useNewUrlParser: true,
-//       useUnifiedTopology: true,
-//     });
-//     console.log('✅ Connected to MongoDB');
+async function assignEnglishLanguage() {
+  try {
+    // Connect to MongoDB
+    await mongoose.connect(MONGO_URI, {
+      useNewUrlParser: true,
+      useUnifiedTopology: true,
+    });
+    console.log("✅ Connected to MongoDB");
 
-//     const teachers = await Teacher.find();
+    // Assign English Language to All ClassLevels
+    const classLevels = await ClassLevel.find();
+    if (classLevels.length === 0) {
+      console.log("⚠️ No ClassLevels found in the database");
+    } else {
+      console.log(`📚 Found ${classLevels.length} ClassLevels`);
 
-//     for (const teacher of teachers) {
-//       const reviews = await Review.find({ teacherId: teacher._id }, "_id rating");
+      // Check if English Language Subject exists
+      let englishSubject = await Subject.findOne({ name: "English Language" });
+      if (!englishSubject) {
+        // Create English Language Subject
+        const subjectData = {
+          name: "English Language",
+          description: "Mandatory subject: English Language",
+          classLevelSubclasses: [],
+        };
+        englishSubject = await createSubjectService(subjectData);
+        console.log(`✅ Created English Language Subject`);
+      } else {
+        console.log(`ℹ️ English Language Subject already exists`);
+      }
 
-//       // Update the reviews field
-//       const reviewRefs = reviews.map((r) => ({ id: r._id }));
+      // Assign English Language to all ClassLevels
+      for (const classLevel of classLevels) {
+        const classLevelSubclasses = [];
 
-//       // Calculate the average rating
-//       const totalRating = reviews.reduce((sum, r) => sum + r.rating, 0);
-//       const averageRating = reviews.length ? totalRating / reviews.length : 0;
+        if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+          // For SS classes, assign English Language to each subclass
+          for (const subclass of classLevel.subclasses) {
+            if (!subclass.subjects.some((s) => s.subject.toString() === englishSubject._id.toString())) {
+              classLevelSubclasses.push({
+                classLevel: classLevel._id,
+                subclassLetter: subclass.letter,
+                teachers: [], // No teachers assigned
+              });
+            }
+          }
+        } else {
+          // For Primary/JSS, assign English Language to the class level
+          if (!classLevel.subjects.some((s) => s.toString() === englishSubject._id.toString())) {
+            classLevelSubclasses.push({
+              classLevel: classLevel._id,
+              subclassLetter: null,
+              teachers: [],
+            });
+          }
+        }
 
-//       teacher.reviews = reviewRefs;
-//       teacher.rating = parseFloat(averageRating.toFixed(2));
+        if (classLevelSubclasses.length > 0) {
+          // Update the English Language Subject with new classLevelSubclasses
+          await Subject.findByIdAndUpdate(
+            englishSubject._id,
+            {
+              $addToSet: {
+                classLevelSubclasses: { $each: classLevelSubclasses },
+              },
+            },
+            { new: true }
+          );
 
-//       await teacher.save();
+          // Update the ClassLevel document
+          if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+            for (const cls of classLevelSubclasses) {
+              await ClassLevel.updateOne(
+                {
+                  _id: cls.classLevel,
+                  "subclasses.letter": cls.subclassLetter,
+                },
+                {
+                  $addToSet: {
+                    "subclasses.$[sub].subjects": {
+                      subject: englishSubject._id,
+                      teachers: cls.teachers,
+                    },
+                  },
+                },
+                {
+                  arrayFilters: [{ "sub.letter": cls.subclassLetter }],
+                }
+              );
+            }
+          } else {
+            await ClassLevel.updateOne(
+              { _id: classLevel._id },
+              {
+                $addToSet: {
+                  subjects: englishSubject._id,
+                  "subclasses.$[].subjects": {
+                    subject: englishSubject._id,
+                    teachers: [],
+                  },
+                },
+              }
+            );
+          }
 
-//       console.log(`✅ Updated ${teacher.firstName} ${teacher.lastName} (${reviews.length} reviews)`);
-//     }
+          console.log(
+            `✅ Assigned English Language to ${classLevel.name}${
+              ["SS 1", "SS 2", "SS 3"].includes(classLevel.name)
+                ? ` (subclasses: ${classLevelSubclasses.map((cls) => cls.subclassLetter).join(", ")})`
+                : ""
+            }`
+          );
+        } else {
+          console.log(`ℹ️ English Language already assigned to ${classLevel.name}`);
+        }
+      }
+    }
 
-//     console.log("🎉 All teachers updated with rating and reviews.");
-//     await mongoose.disconnect();
-//     console.log('🔌 Disconnected from MongoDB');
-//     process.exit(0);
-//   }
-// }
+    console.log("🎉 English Language assigned to all ClassLevels.");
+    await mongoose.disconnect();
+    console.log("🔌 Disconnected from MongoDB");
+    process.exit(0);
+  } catch (error) {
+    console.error("❌ Error:", error.message);
+    await mongoose.disconnect();
+    console.log("🔌 Disconnected from MongoDB");
+    process.exit(1);
+  }
+}
 
-// updateTeachersWithRatingAndReviews();
+assignEnglishLanguage();

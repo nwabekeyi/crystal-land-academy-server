@@ -1,5 +1,7 @@
+const mongoose = require("mongoose");
 const ClassLevel = require("../../models/Academic/class.model");
 const Teacher = require("../../models/Staff/teachers.model");
+const Subject = require("../../models/Academic/subject.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
 /**
@@ -11,20 +13,51 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  */
 exports.createClassLevelService = async (data, userId, res) => {
   const { section, name, description, academicYear, subclasses = [], teachers = [] } = data;
-
   try {
+    // Validate userId
+    if (!mongoose.isValidObjectId(userId)) {
+      return responseStatus(res, 400, "failed", `Invalid user ID: ${userId}`);
+    }
+
+    // Validate academicYear
+    if (!mongoose.isValidObjectId(academicYear)) {
+      return responseStatus(res, 400, "failed", `Invalid academic year ID: ${academicYear}`);
+    }
+    const academicYearExists = await mongoose.model("AcademicYear").findById(academicYear);
+    if (!academicYearExists) {
+      return responseStatus(res, 400, "failed", "Academic year does not exist");
+    }
+
     // Check for duplicate class
     const existing = await ClassLevel.findOne({ section, name, academicYear });
     if (existing) {
       return responseStatus(res, 400, "failed", "Class already exists for this academic year");
     }
 
-    // Validate teacher IDs
+    // Sanitize and validate teachers array
+    let sanitizedTeachers = [];
     if (teachers.length > 0) {
-      const validTeachers = await Teacher.find({ _id: { $in: teachers } });
-      if (validTeachers.length !== teachers.length) {
+      const teacherIds = teachers.map((t) => {
+        if (!t.teacherId || !mongoose.isValidObjectId(t.teacherId)) {
+          throw new Error(`Invalid teacher ID: ${t.teacherId || "undefined"}`);
+        }
+        return t.teacherId.toString();
+      });
+      const validTeachers = await Teacher.find({ _id: { $in: teacherIds } });
+      if (validTeachers.length !== teacherIds.length) {
         return responseStatus(res, 400, "failed", "One or more teacher IDs are invalid");
       }
+      sanitizedTeachers = teachers.map((t) => {
+        const teacherDoc = validTeachers.find((td) => td._id.toString() === t.teacherId.toString());
+        if (!teacherDoc || t.firstName !== teacherDoc.firstName || t.lastName !== teacherDoc.lastName) {
+          throw new Error(`Teacher data mismatch for ID ${t.teacherId}`);
+        }
+        return {
+          teacherId: t.teacherId,
+          firstName: t.firstName,
+          lastName: t.lastName,
+        };
+      });
     }
 
     // Validate subclasses
@@ -39,10 +72,46 @@ exports.createClassLevelService = async (data, userId, res) => {
         if (!isSeniorSecondary && sub.subjects && sub.subjects.length > 0) {
           return responseStatus(res, 400, "failed", `Subjects not allowed for non-SS class: ${name}`);
         }
+        if (sub.subjects && sub.subjects.length > 0) {
+          for (const subject of sub.subjects) {
+            if (!mongoose.isValidObjectId(subject.subject)) {
+              return responseStatus(res, 400, "failed", `Invalid subject ID ${subject.subject} in subclass ${sub.letter}`);
+            }
+            if (subject.teachers && subject.teachers.length > 0) {
+              for (const teacherId of subject.teachers) {
+                if (!mongoose.isValidObjectId(teacherId)) {
+                  return responseStatus(res, 400, "failed", `Invalid teacher ID ${teacherId} in subclass ${sub.letter} for subject ${subject.subject}`);
+                }
+              }
+            }
+          }
+        }
+        if (sub.students && sub.students.length > 0) {
+          for (const student of sub.students) {
+            if (!mongoose.isValidObjectId(student.id)) {
+              return responseStatus(res, 400, "failed", `Invalid student ID ${student.id} in subclass ${sub.letter}`);
+            }
+          }
+        }
         if (sub.feesPerTerm && sub.feesPerTerm.length > 0) {
           const terms = sub.feesPerTerm.map((fee) => fee.termName);
           if (new Set(terms).size !== terms.length) {
             return responseStatus(res, 400, "failed", `Duplicate fee terms in subclass ${sub.letter}`);
+          }
+          for (const fee of sub.feesPerTerm) {
+            if (!["1st Term", "2nd Term", "3rd Term"].includes(fee.termName)) {
+              return responseStatus(res, 400, "failed", `Invalid term name: ${fee.termName} in subclass ${sub.letter}`);
+            }
+            if (fee.amount < 0) {
+              return responseStatus(res, 400, "failed", `Fee amount must be non-negative in subclass ${sub.letter}`);
+            }
+            if (fee.student && fee.student.length > 0) {
+              for (const studentId of fee.student) {
+                if (!mongoose.isValidObjectId(studentId)) {
+                  return responseStatus(res, 400, "failed", `Invalid student ID ${studentId} in feesPerTerm for subclass ${sub.letter}`);
+                }
+              }
+            }
           }
         }
       }
@@ -55,14 +124,14 @@ exports.createClassLevelService = async (data, userId, res) => {
       academicYear,
       createdBy: userId,
       subclasses,
-      teachers,
+      teachers: sanitizedTeachers,
     });
 
     // Update teachers' teachingAssignments
-    if (teachers.length > 0) {
-      const subclassLetters = subclasses.map(sub => sub.letter);
+    if (sanitizedTeachers.length > 0) {
+      const subclassLetters = subclasses.map((sub) => sub.letter);
       await Teacher.updateMany(
-        { _id: { $in: teachers } },
+        { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $addToSet: {
             teachingAssignments: {
@@ -81,8 +150,8 @@ exports.createClassLevelService = async (data, userId, res) => {
 
     return responseStatus(res, 201, "success", populatedClass);
   } catch (error) {
-    console.error("Create ClassLevel Error:", error);
-    return responseStatus(res, 500, "error", "An error occurred while creating the class");
+    console.error("Create ClassLevel Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while creating the class: ${error.message}`);
   }
 };
 
@@ -123,8 +192,8 @@ exports.getAllClassesService = async (query, res) => {
 
     return responseStatus(res, 200, "success", result);
   } catch (error) {
-    console.error("Fetch All Classes Error:", error);
-    return responseStatus(res, 500, "error", "An error occurred while fetching classes");
+    console.error("Fetch All Classes Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while fetching classes: ${error.message}`);
   }
 };
 
@@ -135,6 +204,9 @@ exports.getAllClassesService = async (query, res) => {
  */
 exports.getClassLevelsService = async (id, res) => {
   try {
+    if (!mongoose.isValidObjectId(id)) {
+      return responseStatus(res, 400, "failed", `Invalid class ID: ${id}`);
+    }
     const classLevel = await ClassLevel.findById(id).populate(
       "createdBy academicYear teachers students subclasses.subjects"
     );
@@ -143,8 +215,8 @@ exports.getClassLevelsService = async (id, res) => {
     }
     return responseStatus(res, 200, "success", classLevel);
   } catch (error) {
-    console.error("Get ClassLevel Error:", error);
-    return responseStatus(res, 500, "error", "An error occurred while fetching the class");
+    console.error("Get ClassLevel Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while fetching the class: ${error.message}`);
   }
 };
 
@@ -159,6 +231,20 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
   const { section, name, description, academicYear, subclasses = [], teachers = [] } = data;
 
   try {
+    if (!mongoose.isValidObjectId(id)) {
+      return responseStatus(res, 400, "failed", `Invalid class ID: ${id}`);
+    }
+    if (!mongoose.isValidObjectId(userId)) {
+      return responseStatus(res, 400, "failed", `Invalid user ID: ${userId}`);
+    }
+    if (!mongoose.isValidObjectId(academicYear)) {
+      return responseStatus(res, 400, "failed", `Invalid academic year ID: ${academicYear}`);
+    }
+    const academicYearExists = await mongoose.model("AcademicYear").findById(academicYear);
+    if (!academicYearExists) {
+      return responseStatus(res, 400, "failed", "Academic year does not exist");
+    }
+
     const classFound = await ClassLevel.findOne({
       _id: { $ne: id },
       section,
@@ -169,13 +255,33 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
       return responseStatus(res, 400, "failed", "Another class with same name already exists");
     }
 
+    // Sanitize and validate teachers array
+    let sanitizedTeachers = [];
     if (teachers.length > 0) {
-      const validTeachers = await Teacher.find({ _id: { $in: teachers } });
-      if (validTeachers.length !== teachers.length) {
+      const teacherIds = teachers.map((t) => {
+        if (!t.teacherId || !mongoose.isValidObjectId(t.teacherId)) {
+          throw new Error(`Invalid teacher ID: ${t.teacherId || "undefined"}`);
+        }
+        return t.teacherId.toString();
+      });
+      const validTeachers = await Teacher.find({ _id: { $in: teacherIds } });
+      if (validTeachers.length !== teacherIds.length) {
         return responseStatus(res, 400, "failed", "One or more teacher IDs are invalid");
       }
+      sanitizedTeachers = teachers.map((t) => {
+        const teacherDoc = validTeachers.find((td) => td._id.toString() === t.teacherId.toString());
+        if (!teacherDoc || t.firstName !== teacherDoc.firstName || t.lastName !== teacherDoc.lastName) {
+          throw new Error(`Teacher data mismatch for ID ${t.teacherId}`);
+        }
+        return {
+          teacherId: t.teacherId,
+          firstName: t.firstName,
+          lastName: t.lastName,
+        };
+      });
     }
 
+    // Validate subclasses
     if (subclasses.length > 0) {
       const letters = subclasses.map((sub) => sub.letter);
       if (new Set(letters).size !== letters.length) {
@@ -187,10 +293,46 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
         if (!isSeniorSecondary && sub.subjects && sub.subjects.length > 0) {
           return responseStatus(res, 400, "failed", `Subjects not allowed for non-SS class: ${name}`);
         }
+        if (sub.subjects && sub.subjects.length > 0) {
+          for (const subject of sub.subjects) {
+            if (!mongoose.isValidObjectId(subject.subject)) {
+              return responseStatus(res, 400, "failed", `Invalid subject ID ${subject.subject} in subclass ${sub.letter}`);
+            }
+            if (subject.teachers && subject.teachers.length > 0) {
+              for (const teacherId of subject.teachers) {
+                if (!mongoose.isValidObjectId(teacherId)) {
+                  return responseStatus(res, 400, "failed", `Invalid teacher ID ${teacherId} in subclass ${sub.letter} for subject ${subject.subject}`);
+                }
+              }
+            }
+          }
+        }
+        if (sub.students && sub.students.length > 0) {
+          for (const student of sub.students) {
+            if (!mongoose.isValidObjectId(student.id)) {
+              return responseStatus(res, 400, "failed", `Invalid student ID ${student.id} in subclass ${sub.letter}`);
+            }
+          }
+        }
         if (sub.feesPerTerm && sub.feesPerTerm.length > 0) {
           const terms = sub.feesPerTerm.map((fee) => fee.termName);
           if (new Set(terms).size !== terms.length) {
             return responseStatus(res, 400, "failed", `Duplicate fee terms in subclass ${sub.letter}`);
+          }
+          for (const fee of sub.feesPerTerm) {
+            if (!["1st Term", "2nd Term", "3rd Term"].includes(fee.termName)) {
+              return responseStatus(res, 400, "failed", `Invalid term name: ${fee.termName} in subclass ${sub.letter}`);
+            }
+            if (fee.amount < 0) {
+              return responseStatus(res, 400, "failed", `Fee amount must be non-negative in subclass ${sub.letter}`);
+            }
+            if (fee.student && fee.student.length > 0) {
+              for (const studentId of fee.student) {
+                if (!mongoose.isValidObjectId(studentId)) {
+                  return responseStatus(res, 400, "failed", `Invalid student ID ${studentId} in feesPerTerm for subclass ${sub.letter}`);
+                }
+              }
+            }
           }
         }
       }
@@ -209,22 +351,22 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
         description,
         academicYear,
         subclasses,
-        teachers,
+        teachers: sanitizedTeachers,
         createdBy: userId,
       },
-      { new: true }
+      { new: true, runValidators: true }
     ).populate("createdBy academicYear teachers students subclasses.subjects");
 
     if (!updated) {
       return responseStatus(res, 404, "failed", "Class not found");
     }
 
-    const subclassLetters = subclasses.map(sub => sub.letter);
+    const subclassLetters = subclasses.map((sub) => sub.letter);
     const newAssignment = { section, className: name, subclasses: subclassLetters };
 
-    const removedTeachers = existingClass.teachers.filter(
-      teacherId => !teachers.includes(teacherId.toString())
-    );
+    const removedTeachers = existingClass.teachers
+      .map((t) => t.teacherId.toString())
+      .filter((teacherId) => !sanitizedTeachers.some((t) => t.teacherId.toString() === teacherId));
     if (removedTeachers.length > 0) {
       await Teacher.updateMany(
         { _id: { $in: removedTeachers } },
@@ -239,9 +381,9 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
       );
     }
 
-    if (teachers.length > 0) {
+    if (sanitizedTeachers.length > 0) {
       await Teacher.updateMany(
-        { _id: { $in: teachers } },
+        { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $pull: {
             teachingAssignments: {
@@ -252,7 +394,7 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
         }
       );
       await Teacher.updateMany(
-        { _id: { $in: teachers } },
+        { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $addToSet: {
             teachingAssignments: newAssignment,
@@ -263,8 +405,8 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
 
     return responseStatus(res, 200, "success", updated);
   } catch (error) {
-    console.error("Update ClassLevel Error:", error);
-    return responseStatus(res, 500, "error", "An error occurred while updating the class");
+    console.error("Update ClassLevel Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while updating the class: ${error.message}`);
   }
 };
 
@@ -275,6 +417,9 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
  */
 exports.deleteClassLevelService = async (id, res) => {
   try {
+    if (!mongoose.isValidObjectId(id)) {
+      return responseStatus(res, 400, "failed", `Invalid class ID: ${id}`);
+    }
     const classLevel = await ClassLevel.findById(id);
     if (!classLevel) {
       return responseStatus(res, 404, "failed", "Class not found");
@@ -282,7 +427,7 @@ exports.deleteClassLevelService = async (id, res) => {
 
     if (classLevel.teachers.length > 0) {
       await Teacher.updateMany(
-        { _id: { $in: classLevel.teachers } },
+        { _id: { $in: classLevel.teachers.map((t) => t.teacherId) } },
         {
           $pull: {
             teachingAssignments: {
@@ -301,8 +446,8 @@ exports.deleteClassLevelService = async (id, res) => {
 
     return responseStatus(res, 200, "success", "Class deleted successfully");
   } catch (error) {
-    console.error("Delete ClassLevel Error:", error);
-    return responseStatus(res, 500, "error", "An error occurred while deleting the class");
+    console.error("Delete ClassLevel Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while deleting the class: ${error.message}`);
   }
 };
 
@@ -316,7 +461,7 @@ exports.signUpClassDataService = async (res) => {
     const classLevels = await ClassLevel.find()
       .select("section name subclasses.letter subclasses.subjects _id")
       .populate({
-        path: "subclasses.subjects",
+        path: "subclasses.subjects.subject",
         select: "_id name",
       });
 
@@ -334,8 +479,8 @@ exports.signUpClassDataService = async (res) => {
           subclasses: cl.subclasses.map((sub) => ({
             letter: sub.letter,
             subjects: sub.subjects.map((subject) => ({
-              _id: subject._id,
-              name: subject.name,
+              _id: subject.subject._id,
+              name: subject.subject.name,
             })),
           })),
         }));
@@ -347,8 +492,8 @@ exports.signUpClassDataService = async (res) => {
 
     return responseStatus(res, 200, "success", classData);
   } catch (error) {
-    console.error("Fetch SignUp Class Data Error:", error);
-    return responseStatus(res, 500, "error", "An error occurred while fetching class data for sign-up");
+    console.error("Fetch SignUp Class Data Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while fetching class data for sign-up: ${error.message}`);
   }
 };
 
@@ -359,13 +504,16 @@ exports.signUpClassDataService = async (res) => {
  */
 exports.getClassLevelsAndSubclassesForTeacherService = async (teacherId, res) => {
   try {
+    if (!mongoose.isValidObjectId(teacherId)) {
+      return responseStatus(res, 400, "failed", `Invalid teacher ID: ${teacherId}`);
+    }
     const teacher = await Teacher.findById(teacherId).select("teachingAssignments");
     if (!teacher) {
       return responseStatus(res, 404, "failed", "Teacher not found");
     }
 
     const classLevels = await ClassLevel.find({
-      "teachers": teacherId,
+      "teachers.teacherId": teacherId,
     }).select("section name subclasses.letter _id");
 
     return responseStatus(res, 200, "success", {
@@ -374,8 +522,8 @@ exports.getClassLevelsAndSubclassesForTeacherService = async (teacherId, res) =>
       assignedClasses: classLevels,
     });
   } catch (error) {
-    console.error("Get Class Levels for Teacher Error:", error);
-    return responseStatus(res, 500, "error", "An error occurred while fetching class levels for teacher");
+    console.error("Get Class Levels for Teacher Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while fetching class levels for teacher: ${error.message}`);
   }
 };
 
@@ -391,31 +539,48 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
   const { classId, teacherIds = [], subclasses = [] } = data;
 
   try {
+    if (!mongoose.isValidObjectId(classId)) {
+      return responseStatus(res, 400, "failed", `Invalid class ID: ${classId}`);
+    }
+    if (!mongoose.isValidObjectId(userId)) {
+      return responseStatus(res, 400, "failed", `Invalid user ID: ${userId}`);
+    }
+
     // Validate classId
     const classLevel = await ClassLevel.findById(classId);
     if (!classLevel) {
       return responseStatus(res, 404, "failed", "Class not found");
     }
 
-    // Validate teacherIds (array of objects with teacherId, firstName, lastName)
+    // Validate teacherIds
+    let sanitizedTeachers = [];
     if (teacherIds.length > 0) {
-      const teacherObjectIds = teacherIds.map(t => t.teacherId);
+      const teacherObjectIds = teacherIds.map((t) => {
+        if (!t.teacherId || !mongoose.isValidObjectId(t.teacherId)) {
+          throw new Error(`Invalid teacher ID: ${t.teacherId || "undefined"}`);
+        }
+        return t.teacherId.toString();
+      });
       const validTeachers = await Teacher.find({ _id: { $in: teacherObjectIds } });
       if (validTeachers.length !== teacherObjectIds.length) {
         return responseStatus(res, 400, "failed", "One or more teacher IDs are invalid");
       }
-      // Validate firstName and lastName
-      for (const teacher of teacherIds) {
-        const teacherDoc = validTeachers.find(t => t._id.toString() === teacher.teacherId.toString());
-        if (!teacherDoc || teacher.firstName !== teacherDoc.firstName || teacher.lastName !== teacherDoc.lastName) {
-          return responseStatus(res, 400, "failed", `Teacher data mismatch for ID ${teacher.teacherId}`);
+      sanitizedTeachers = teacherIds.map((t) => {
+        const teacherDoc = validTeachers.find((td) => td._id.toString() === t.teacherId.toString());
+        if (!teacherDoc || t.firstName !== teacherDoc.firstName || t.lastName !== teacherDoc.lastName) {
+          throw new Error(`Teacher data mismatch for ID ${t.teacherId}`);
         }
-      }
+        return {
+          teacherId: t.teacherId,
+          firstName: t.firstName,
+          lastName: t.lastName,
+        };
+      });
     }
 
     // Validate subclasses and subject assignments
-    const validSubclasses = classLevel.subclasses.map(sub => sub.letter);
-    const isSeniorOrJunior = ["JSS", "SS"].includes(classLevel.section);
+    const validSubclasses = classLevel.subclasses.map((sub) => sub.letter);
+    const isSeniorOrJunior = ["JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"].includes(classLevel.name);
 
     if (subclasses.length > 0) {
       for (const sub of subclasses) {
@@ -423,18 +588,30 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
           return responseStatus(res, 400, "failed", `Invalid subclass: ${sub.letter}`);
         }
         if (isSeniorOrJunior && (!sub.subjects || sub.subjects.length === 0)) {
-          return responseStatus(res, 400, "failed", `Subjects required for subclass ${sub.letter} in ${classLevel.section} class`);
+          return responseStatus(res, 400, "failed", `Subjects required for subclass ${sub.letter} in ${classLevel.name}`);
         }
         if (sub.subjects) {
           for (const subject of sub.subjects) {
-            const subjectExists = await Subject.findById(subject.subjectId);
-            if (!subjectExists) {
-              return responseStatus(res, 400, "failed", `Invalid subject ID: ${subject.subjectId}`);
+            if (!mongoose.isValidObjectId(subject.subject)) {
+              return responseStatus(res, 400, "failed", `Invalid subject ID: ${subject.subject} in subclass ${sub.letter}`);
             }
-            if (subject.teacherIds.length > 0) {
+            // Validate subject exists in classLevel.subjects
+            if (!classLevel.subjects.includes(subject.subject)) {
+              return responseStatus(res, 400, "failed", `Subject ID ${subject.subject} is not assigned to class ${classLevel.name}`);
+            }
+            const subjectExists = await Subject.findById(subject.subject);
+            if (!subjectExists) {
+              return responseStatus(res, 400, "failed", `Subject ID ${subject.subject} does not exist`);
+            }
+            if (subject.teacherIds && subject.teacherIds.length > 0) {
+              for (const teacherId of subject.teacherIds) {
+                if (!mongoose.isValidObjectId(teacherId)) {
+                  return responseStatus(res, 400, "failed", `Invalid teacher ID ${teacherId} for subject ${subject.subject} in subclass ${sub.letter}`);
+                }
+              }
               const validSubjectTeachers = await Teacher.find({ _id: { $in: subject.teacherIds } });
               if (validSubjectTeachers.length !== subject.teacherIds.length) {
-                return responseStatus(res, 400, "failed", `Invalid teacher IDs for subject ${subject.subjectId}`);
+                return responseStatus(res, 400, "failed", `Invalid teacher IDs for subject ${subject.subject} in subclass ${sub.letter}`);
               }
             }
           }
@@ -443,40 +620,37 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
     }
 
     // Use all subclasses if none provided, ensuring subjects for JSS/SS
-    const subclassesToAssign = subclasses.length > 0 ? subclasses : classLevel.subclasses.map(sub => ({
-      letter: sub.letter,
-      subjects: isSeniorOrJunior ? sub.subjects.map(s => ({
-        subjectId: s.subject,
-        teacherIds: s.teachers || [],
-      })) : [],
-    }));
+    const subclassesToAssign = subclasses.length > 0
+      ? subclasses
+      : classLevel.subclasses.map((sub) => ({
+          letter: sub.letter,
+          subjects: isSeniorOrJunior
+            ? sub.subjects.map((s) => ({
+                subject: s.subject,
+                teacherIds: s.teachers || [],
+              }))
+            : [],
+        }));
 
     // Update ClassLevel.teachers
-    const existingTeachers = classLevel.teachers.map(t => t.teacherId.toString());
-    const teachersToAdd = teacherIds.filter(t => !existingTeachers.includes(t.teacherId.toString()));
-    const teachersToRemove = existingTeachers.filter(id => !teacherIds.some(t => t.teacherId.toString() === id));
+    const existingTeachers = classLevel.teachers.map((t) => t.teacherId.toString());
+    const teachersToAdd = sanitizedTeachers.filter((t) => !existingTeachers.includes(t.teacherId.toString()));
+    const teachersToRemove = existingTeachers.filter((id) => !sanitizedTeachers.some((t) => t.teacherId.toString() === id));
 
     if (teachersToAdd.length > 0 || teachersToRemove.length > 0) {
-      classLevel.teachers = teacherIds.map(t => ({
-        teacherId: t.teacherId,
-        firstName: t.firstName,
-        lastName: t.lastName,
-      }));
+      classLevel.teachers = sanitizedTeachers;
     }
 
     // Update subclass subject teacher assignments for JSS/SS
     if (isSeniorOrJunior) {
-      classLevel.subclasses = classLevel.subclasses.map(sub => {
-        const updatedSub = subclassesToAssign.find(s => s.letter === sub.letter) || { letter: sub.letter, subjects: [] };
+      classLevel.subclasses = classLevel.subclasses.map((sub) => {
+        const updatedSub = subclassesToAssign.find((s) => s.letter === sub.letter) || { letter: sub.letter, subjects: [] };
         return {
-          ...sub,
-          subjects: sub.subjects.map(subject => {
-            const updatedSubject = updatedSub.subjects.find(s => s.subjectId.toString() === subject.subject.toString());
-            return {
-              ...subject,
-              teachers: updatedSubject ? updatedSubject.teacherIds : subject.teachers,
-            };
-          }),
+          ...sub.toObject(),
+          subjects: updatedSub.subjects.map((subject) => ({
+            subject: subject.subject,
+            teachers: subject.teacherIds || [],
+          })),
         };
       });
     }
@@ -498,9 +672,9 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
       );
     }
 
-    if (teacherIds.length > 0) {
+    if (sanitizedTeachers.length > 0) {
       await Teacher.updateMany(
-        { _id: { $in: teacherIds.map(t => t.teacherId) } },
+        { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $pull: {
             teachingAssignments: {
@@ -511,13 +685,13 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
         }
       );
       await Teacher.updateMany(
-        { _id: { $in: teacherIds.map(t => t.teacherId) } },
+        { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $addToSet: {
             teachingAssignments: {
               section: classLevel.section,
               className: classLevel.name,
-              subclasses: subclassesToAssign.map(sub => sub.letter), // Send only subclass letters
+              subclasses: subclassesToAssign.map((sub) => sub.letter),
             },
           },
         }
@@ -530,7 +704,89 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
 
     return responseStatus(res, 200, "success", populatedClass);
   } catch (error) {
-    console.error("Assign Teachers to Class Error:", error);
-    return responseStatus(res, 500, "error", "An error occurred while assigning teachers to class");
+    console.error("Assign Teachers to Class Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while assigning teachers to class: ${error.message}`);
+  }
+};
+
+/**
+ * Add a subclass to an existing ClassLevel.
+ * @param {Object} data - Subclass data including letter and feesPerTerm.
+ * @param {string} classId - The ID of the ClassLevel to add the subclass to.
+ * @param {string} userId - The ID of the admin adding the subclass.
+ * @param {Object} res - The response object.
+ * @returns {Object} - Response status.
+ */
+exports.addSubclassToClassLevelService = async (data, classId, userId, res) => {
+  const { letter, feesPerTerm = [] } = data;
+
+  try {
+    if (!mongoose.isValidObjectId(classId)) {
+      return responseStatus(res, 400, "failed", `Invalid class ID: ${classId}`);
+    }
+    if (!mongoose.isValidObjectId(userId)) {
+      return responseStatus(res, 400, "failed", `Invalid user ID: ${userId}`);
+    }
+
+    // Find the ClassLevel
+    const classLevel = await ClassLevel.findById(classId);
+    if (!classLevel) {
+      return responseStatus(res, 404, "failed", "ClassLevel not found");
+    }
+
+    // Validate subclass letter
+    if (!letter.match(/^[A-Z]$/)) {
+      return responseStatus(res, 400, "failed", "Subclass letter must be a single uppercase letter (A-Z)");
+    }
+
+    // Check for duplicate subclass letter
+    if (classLevel.subclasses.some((sub) => sub.letter === letter)) {
+      return responseStatus(res, 400, "failed", `Subclass with letter ${letter} already exists`);
+    }
+
+    // Validate feesPerTerm
+    if (feesPerTerm.length > 0) {
+      const terms = feesPerTerm.map((fee) => fee.termName);
+      if (new Set(terms).size !== terms.length) {
+        return responseStatus(res, 400, "failed", "Duplicate fee terms in subclass");
+      }
+      for (const fee of feesPerTerm) {
+        if (!["1st Term", "2nd Term", "3rd Term"].includes(fee.termName)) {
+          return responseStatus(res, 400, "failed", `Invalid term name: ${fee.termName}`);
+        }
+        if (fee.amount < 0) {
+          return responseStatus(res, 400, "failed", "Fee amount must be non-negative");
+        }
+        if (fee.student && fee.student.length > 0) {
+          for (const studentId of fee.student) {
+            if (!mongoose.isValidObjectId(studentId)) {
+              return responseStatus(res, 400, "failed", `Invalid student ID ${studentId} in feesPerTerm`);
+            }
+          }
+        }
+      }
+    }
+
+    // Create new subclass
+    const newSubclass = {
+      letter,
+      feesPerTerm,
+    };
+
+    // Add subclass to ClassLevel
+    classLevel.subclasses.push(newSubclass);
+
+    // Save the updated ClassLevel
+    await classLevel.save();
+
+    // Populate and return the updated ClassLevel
+    const populatedClass = await ClassLevel.findById(classId).populate(
+      "createdBy academicYear teachers students subclasses.subjects"
+    );
+
+    return responseStatus(res, 200, "success", populatedClass);
+  } catch (error) {
+    console.error("Add Subclass Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while adding the subclass: ${error.message}`);
   }
 };

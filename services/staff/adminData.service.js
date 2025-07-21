@@ -81,7 +81,7 @@ exports.getOutstandingFeesService = async (res) => {
       .select("_id name")
       .lean();
     if (!academicYears.length) {
-      return responseStatus(res, 404, "failed", "No academic years found");
+      return;
     }
     const academicYearMap = academicYears.reduce((map, ay) => {
       map[ay._id.toString()] = ay.name;
@@ -215,7 +215,7 @@ exports.getAdminStatsService = async (res) => {
 
     const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
     if (!currentAcademicYear) {
-      return responseStatus(res, 404, "failed", "No current academic year found");
+      return;
     }
 
     const currentYearStudents = await Student.countDocuments({

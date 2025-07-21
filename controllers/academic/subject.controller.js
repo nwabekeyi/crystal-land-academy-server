@@ -45,6 +45,7 @@ exports.getSubjectsController = async (req, res) => {
 exports.getSubjectController = async (req, res) => {
   try {
     const subject = await getSubjectsService(req.params.id);
+    
     responseStatus(res, 200, "success", subject);
   } catch (error) {
     responseStatus(res, error.statusCode || 500, "failed", error.message);
@@ -59,7 +60,12 @@ exports.getSubjectController = async (req, res) => {
 exports.updateSubjectController = async (req, res) => {
   try {
     const result = await updateSubjectService(req.body, req.params.id);
-    responseStatus(res, 200, "success", result);
+    // Optional: Transform result to include name as string for frontend
+    const transformedResult = {
+      ...result._doc,
+      name: result.name.name, // Extract string name from populated SubjectName
+    };
+    responseStatus(res, 200, "success", transformedResult);
   } catch (error) {
     responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
@@ -86,8 +92,15 @@ exports.deleteSubjectController = async (req, res) => {
  */
 exports.getSubjectsForSubclassController = async (req, res) => {
   try {
-    const subjects = await getSubjectsForSubclassService(req.body);
-    responseStatus(res, 200, "success", subjects);
+    const subjects = await getSubjectsForSubclassService(req.query); // Use req.query instead of req.body
+    console.log(subjects)
+    // Transform subjects to include name as string for frontend
+    const transformedSubjects = subjects.map(subject => ({
+      ...subject._doc,
+      name: subject.name?.name || 'Unknown', // Fallback to 'Unknown' if name is missing
+    }));
+
+    responseStatus(res, 200, "success", transformedSubjects);
   } catch (error) {
     responseStatus(res, error.statusCode || 500, "failed", error.message);
   }
@@ -101,7 +114,12 @@ exports.getSubjectsForSubclassController = async (req, res) => {
 exports.getSubjectsForTeacherController = async (req, res) => {
   try {
     const subjects = await getSubjectsForTeacherService(req.params.teacherId);
-    responseStatus(res, 200, "success", subjects);
+    // Optional: Transform subjects to include name as string for frontend
+    const transformedSubjects = subjects.map(subject => ({
+      ...subject._doc,
+      name: subject.name.name, // Extract string name from populated SubjectName
+    }));
+    responseStatus(res, 200, "success", transformedSubjects);
   } catch (error) {
     responseStatus(res, error.statusCode || 500, "failed", error.message);
   }

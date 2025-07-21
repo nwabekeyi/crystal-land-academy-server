@@ -27,12 +27,14 @@ exports.getSchoolFeesDataController = async (req, res) => {
  * @access Private (Admin only)
  */
 exports.getOutstandingFeesController = async (req, res) => {
-  try {
     const result = await getOutstandingFeesService(res);
-    responseStatus(res, 200, "success", result);
-  } catch (error) {
-    responseStatus(res, 400, "failed", error.message);
-  }
+    console.log(result);
+    if (!result) {
+      responseStatus(res, 200, "success", {});
+    }else{
+      responseStatus(res, 200, "success", result);
+    }
+
 };
 
 /**

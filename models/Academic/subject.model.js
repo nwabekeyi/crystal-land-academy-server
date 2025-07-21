@@ -1,20 +1,17 @@
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
-const AcademicYear = require("./academicYear.model");
+const SubjectName = require("./subjectName.model.js");
 
 const subjectSchema = new mongoose.Schema(
   {
     name: {
-      type: String,
+      type: ObjectId,
+      ref: "SubjectName",
       required: true,
       index: true,
     },
     description: {
       type: String,
-      required: true,
-    },
-    academicYear: {
-      type: ObjectId,
       required: true,
     },
     classLevelSubclasses: [
@@ -26,11 +23,11 @@ const subjectSchema = new mongoose.Schema(
         subclassLetter: {
           type: String,
           match: /^[A-Z]$/, // Single capital letter (A, B, etc.)
-          // Validation moved to service layer to avoid synchronous ClassLevel query
         },
         teachers: [
           {
             type: ObjectId,
+            ref: "Teacher",
           },
         ],
       },
@@ -39,15 +36,15 @@ const subjectSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-// Pre-save hook to validate academicYear and classLevelSubclasses
+// Pre-save hook to validate classLevelSubclasses and name
 subjectSchema.pre("save", async function (next) {
   try {
     const subject = this;
 
-    // Validate academicYear
-    const academicYear = await AcademicYear.findById(subject.academicYear);
-    if (!academicYear) {
-      throw new Error("Referenced AcademicYear does not exist");
+    // Validate name (SubjectName reference)
+    const subjectName = await SubjectName.findById(subject.name);
+    if (!subjectName) {
+      throw new Error("Referenced SubjectName does not exist");
     }
 
     // Validate classLevelSubclasses

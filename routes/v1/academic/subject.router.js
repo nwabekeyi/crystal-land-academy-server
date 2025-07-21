@@ -12,18 +12,19 @@ const {
   createSubjectController,
   getSubjectsForSubclassController,
   getSubjectsForTeacherController,
+
 } = require("../../../controllers/academic/subject.controller");
 
 subjectRouter.route("/subjects").get(isLoggedIn, isAdmin, getSubjectsController);
 subjectRouter.route("/subjects").post(isLoggedIn, isAdmin, createSubjectController);
 subjectRouter
+  .route("/subjects/subclass/filter")
+  .get(isLoggedIn, isAdmin, getSubjectsForSubclassController);
+subjectRouter
   .route("/subjects/:id")
   .get(isLoggedIn, isAdmin, getSubjectController)
   .patch(isLoggedIn, isAdmin, updateSubjectController)
   .delete(isLoggedIn, isAdmin, deleteSubjectController);
-subjectRouter
-  .route("/subjects/subclass")
-  .post(isLoggedIn, isAdmin, getSubjectsForSubclassController);
 subjectRouter
   .route("/subjects/teacher/:teacherId")
   .get(isLoggedIn, isAdmin, getSubjectsForTeacherController);

@@ -8,6 +8,7 @@ const {
   signUpClassDataService,
   getClassLevelsAndSubclassesForTeacherService,
   assignTeachersToClassService,
+  addSubclassToClassLevelService
 } = require("../../services/academic/class.service");
 
 /**
@@ -109,6 +110,20 @@ exports.getClassLevelsAndSubclassesForTeacherController = async (req, res) => {
 exports.assignTeachersToClassController = async (req, res) => {
   try {
     await assignTeachersToClassService(req.body, req.userAuth.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+
+/**
+ * @desc Add a Subclass to a ClassLevel
+ * @route POST /api/v1/class-levels/:id/subclasses
+ * @access Private (Admin only)
+ */
+exports.addSubclassToClassLevelController = async (req, res) => {
+  try {
+    await addSubclassToClassLevelService(req.body, req.params.id, req.userAuth.id, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

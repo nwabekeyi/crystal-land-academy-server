@@ -1,6 +1,11 @@
 // services/academicYear.service.js
 const AcademicYear = require("../../models/Academic/academicYear.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const AcademicTerm = require("../../models/Academic/academicTerm.model");
+const StudentPayment = require("../../models/Academic/schoolFees.model");
+const Exams = require('../../models/Academic/exams.model');
+const ClassLevel = require('../../models/Academic/academicYear.model')
+const mongoose = require('mongoose');
 
 // Helper function to validate isCurrent academic year date constraints
 const validateCurrentYearDates = (fromYear, toYear, res) => {
@@ -242,16 +247,86 @@ exports.changeCurrentAcademicYearService = async (res, academicId) => {
 };
 
 /**
- * Delete academic year service.
- */
+* Delete academic year service.
+* @param {Object} res - The Express response object.
+* @param {string} id - The ID of the academic year to delete.
+* @returns {Object} - Response status indicating success or failure.
+*/
 exports.deleteAcademicYearService = async (res, id) => {
-  try {
-    const academicYear = await AcademicYear.findByIdAndDelete(id).lean();
-    if (!academicYear) {
-      return responseStatus(res, 404, "error", "Academic year not found");
-    }
-    return responseStatus(res, 200, "success", academicYear);
-  } catch (error) {
-    return responseStatus(res, 500, "error", "Failed to delete academic year");
-  }
+ const session = await mongoose.startSession();
+ session.startTransaction();
+
+ try {
+   // Validate academic year ID
+   if (!mongoose.isValidObjectId(id)) {
+     await session.abortTransaction();
+     session.endSession();
+     return responseStatus(res, 400, "error", "Invalid academic year ID");
+   }
+
+   // Find the academic year
+   const academicYear = await AcademicYear.findById(id).session(session);
+   if (!academicYear) {
+     await session.abortTransaction();
+     session.endSession();
+     return responseStatus(res, 404, "error", "Academic year not found");
+   }
+
+   // Check for associated data (excluding AcademicTerm, which we will delete)
+   // 1. Check for associated Class Levels
+   const classLevels = await ClassLevel.find({ academicYear: id }).session(session);
+   if (classLevels.length > 0) {
+     await session.abortTransaction();
+     session.endSession();
+     return responseStatus(res, 400, "error", "Cannot delete academic year with associated class levels");
+   }
+
+   // 2. Check for associated Student Payments
+   const studentPayments = await StudentPayment.find({ academicYear: id }).session(session);
+   if (studentPayments.length > 0) {
+     await session.abortTransaction();
+     session.endSession();
+     return responseStatus(res, 400, "error", "Cannot delete academic year with associated student payments");
+   }
+
+   // 3. Check for associated Teachers
+   if (academicYear.teachers.length > 0) {
+     await session.abortTransaction();
+     session.endSession();
+     return responseStatus(res, 400, "error", "Cannot delete academic year with associated teachers");
+   }
+
+   // 4. Check for associated Students
+   if (academicYear.students.length > 0) {
+     await session.abortTransaction();
+     session.endSession();
+     return responseStatus(res, 400, "error", "Cannot delete academic year with associated students");
+   }
+
+   // 5. Check for associated Exams
+   const exams = await Exams.find({ academicYear: id }).session(session);
+   if (exams.length > 0) {
+     await session.abortTransaction();
+     session.endSession();
+     return responseStatus(res, 400, "error", "Cannot delete academic year with associated exams");
+   }
+
+   // Delete associated Academic Terms
+   await AcademicTerm.deleteMany({ academicYear: id }).session(session);
+
+   // Delete the academic year
+   await AcademicYear.findByIdAndDelete(id).session(session);
+
+   // Commit the transaction
+   await session.commitTransaction();
+   session.endSession();
+
+   return responseStatus(res, 200, "success", { message: "Academic year and associated terms deleted successfully" });
+ } catch (error) {
+   // Rollback the transaction on error
+   await session.abortTransaction();
+   session.endSession();
+   console.error("Error deleting academic year:", error.message);
+   return responseStatus(res, 500, "error", "Failed to delete academic year: " + error.message);
+ }
 };
