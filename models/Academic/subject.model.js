@@ -68,11 +68,7 @@ subjectSchema.pre("save", async function (next) {
               `Subclass ${cls.subclassLetter} does not exist in ${classLevel.name}`
             );
           }
-        } else {
-          if (cls.subclassLetter) {
-            throw new Error(`Subclass letter not allowed for ${classLevel.name}`);
-          }
-        }
+        } 
 
         // Validate teachers
         if (cls.teachers && cls.teachers.length > 0) {

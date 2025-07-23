@@ -966,118 +966,96 @@ exports.adminDeleteStudentService = async (studentId, res) => {
  * Admin delete student service.
  * @param {string} studentId - The ID of the student to delete.
  * @param {Object} res - The Express response object.
- * @returns {Object} - The response object indicating success or failure.
+ * @returns {void} - Sends HTTP response via responseStatus.
  */
 exports.adminDeleteStudentService = async (studentId, res) => {
-  let originalClassLevel = null;
-  let originalAcademicYear = null;
+  const session = await mongoose.startSession();
+  session.startTransaction();
 
   try {
     // 1. Find the student
-    const student = await Student.findById(studentId);
+    const student = await Student.findById(studentId).session(session);
     if (!student) {
+      await session.abortTransaction();
+      session.endSession();
       return responseStatus(res, 404, "failed", "Student not found");
     }
 
     const profilePictureUrl = student.profilePictureUrl;
 
-    // 2. Backup and update ClassLevel
-    const classLevel = await ClassLevel.findById(student.classLevelId);
-    if (classLevel) {
-      originalClassLevel = {
-        _id: classLevel._id,
-        students: [...classLevel.students],
-        subclasses: classLevel.subclasses.map((s) => ({
-          letter: s.letter,
-          students: [...s.students],
-        })),
-      };
-
-      classLevel.students = classLevel.students.filter(
-        (id) => !id.equals(studentId)
-      );
-
-      const subclass = classLevel.subclasses.find(
-        (sub) => sub.letter === student.currentClassLevel.subclass
-      );
-      if (subclass) {
-        subclass.students = subclass.students.filter(
+    // 2. Remove student from ClassLevel and subclass
+    let classLevel = null;
+    if (student.classLevelId) {
+      classLevel = await ClassLevel.findById(student.classLevelId).session(session);
+      if (classLevel) {
+        // Remove from ClassLevel.students
+        classLevel.students = classLevel.students.filter(
           (id) => !id.equals(studentId)
         );
-      }
 
-      await classLevel.save();
+        // Remove from subclass.students and subclass.feesPerTerm.student
+        const subclass = classLevel.subclasses.find(
+          (sub) => sub.letter === student.currentClassLevel.subclass
+        );
+        if (subclass) {
+          subclass.students = subclass.students.filter(
+            (s) => !s.id.equals(studentId)
+          );
+          if (subclass.feesPerTerm) {
+            subclass.feesPerTerm.forEach((fee) => {
+              fee.student = fee.student.filter(
+                (id) => !id.equals(studentId)
+              );
+            });
+          }
+        }
+
+        await classLevel.save({ session });
+      }
     }
 
-    // 3. Backup and update AcademicYear
-    const academicYear = await AcademicYear.findOne({ isCurrent: true });
+    // 3. Remove student from AcademicYear
+    const academicYear = await AcademicYear.findOne({ isCurrent: true }).session(session);
     if (academicYear) {
-      originalAcademicYear = {
-        _id: academicYear._id,
-        students: [...academicYear.students],
-      };
-
       academicYear.students = academicYear.students.filter(
         (id) => !id.equals(studentId)
       );
-
-      await academicYear.save();
+      await academicYear.save({ session });
     }
 
-    // 4. Delete exam results
-    await Results.deleteMany({ studentId });
+    // 4. Delete associated exam results
+    await Results.deleteMany({ studentId }).session(session);
 
-    // 5. Delete Cloudinary picture (non-blocking)
+    // 5. Delete associated student payment records
+    await StudentPayment.deleteMany({ studentId }).session(session);
+
+    // 6. Delete profile picture from Cloudinary (non-blocking)
     if (profilePictureUrl) {
       try {
         await deleteFromCloudinary(profilePictureUrl);
       } catch (err) {
         console.warn("Failed to delete profile picture from Cloudinary:", err.message);
+        // Continue to avoid blocking deletion
       }
     }
 
-    // 6. Delete student
-    await Student.findByIdAndDelete(studentId);
+    // 7. Delete the student
+    await Student.findByIdAndDelete(studentId).session(session);
+
+    // Commit transaction
+    await session.commitTransaction();
+    session.endSession();
 
     return responseStatus(res, 200, "success", {
       message: "Student deleted successfully",
       studentId,
     });
-
   } catch (error) {
-    console.error("Deletion failed:", error.message);
+    console.error("Error deleting student:", error.message, error.stack);
 
-    // ✅ Rollback Logic
-    try {
-      // Restore ClassLevel
-      if (originalClassLevel) {
-        const classLevel = await ClassLevel.findById(originalClassLevel._id);
-        if (classLevel) {
-          classLevel.students = originalClassLevel.students;
-
-          for (let sub of classLevel.subclasses) {
-            const originalSub = originalClassLevel.subclasses.find(
-              (s) => s.letter === sub.letter
-            );
-            if (originalSub) {
-              sub.students = originalSub.students;
-            }
-          }
-
-          await classLevel.save();
-        }
-      }
-
-      // Restore AcademicYear
-      if (originalAcademicYear) {
-        await AcademicYear.findByIdAndUpdate(originalAcademicYear._id, {
-          $set: { students: originalAcademicYear.students },
-        });
-      }
-
-    } catch (rollbackError) {
-      console.error("Rollback failed:", rollbackError.message);
-    }
+    // Rollback transaction
+    await session.abortTransaction();
+    session.endSession();
 
     return responseStatus(res, 500, "failed", "Error deleting student: " + error.message);
   }

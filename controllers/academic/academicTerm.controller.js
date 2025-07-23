@@ -2,6 +2,7 @@
 const {
   createAcademicTermService,
   getAcademicTermsService,
+  getAcademicTermsByYearService,
   getAcademicTermService,
   updateAcademicTermService,
   deleteAcademicTermService,
@@ -23,6 +24,15 @@ exports.createAcademicTermController = async (req, res) => {
  */
 exports.getAcademicTermsController = async (req, res) => {
   return getAcademicTermsService(res);
+};
+
+/**
+ * @desc Get Academic Terms by Academic Year
+ * @route GET /api/v1/academic-Terms/year/:academicYearId
+ * @access Private
+ */
+exports.getAcademicTermsByYearController = async (req, res) => {
+  return getAcademicTermsByYearService(req.params.academicYearId, res);
 };
 
 /**

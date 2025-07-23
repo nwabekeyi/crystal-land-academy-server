@@ -112,6 +112,7 @@ exports.getAssignedClassesController = async (req, res) => {
  * @access Private Admin only
  */
 exports.adminDeleteTeacherController = async (req, res) => {
+  console.log('called')
   try {
     await adminDeleteTeacherService(req.params.teacherId, res);
   } catch (error) {

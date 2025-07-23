@@ -10,7 +10,7 @@ const ClassLevel = require("../../models/Academic/class.model");
 const generateToken = require("../../utils/tokenGenerator");
 const { deleteFromCloudinary } = require("../../middlewares/fileUpload");
 const responseStatus = require("../../handlers/responseStatus.handler");
-
+const Results = require('../../models/Academic/results.model');
 // Custom error class for service errors
 class ServiceError extends Error {
   constructor(statusCode, message) {
@@ -143,7 +143,8 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
       if (classLevelDoc) {
         const teacherEntry = {
           teacherId: newTeacher._id,
-          name: `${newTeacher.firstName} ${newTeacher.lastName}`,
+          firstName: newTeacher.firstName,
+          lastName: newTeacher.lastName,
         };
         if (!classLevelDoc.teachers.some((t) => t.teacherId.toString() === newTeacher._id.toString())) {
           classLevelDoc.teachers.push(teacherEntry);
