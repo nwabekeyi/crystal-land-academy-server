@@ -58,7 +58,7 @@ exports.createReviewService = async (data) => {
   const review = new Review({ id, studentId, teacherId, classId, rating, reviewText, academicYearId });
   const savedReview = await review.save();
 
-  teacher.reviews.push({ id: savedReview._id });
+  teacher.reviews.push(savedReview._id); // ✅ Correct
   await teacher.save();
 
   // ✅ Update teacher's average rating

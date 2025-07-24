@@ -50,6 +50,12 @@ const curriculumSchema = new mongoose.Schema({
     ref: 'Admin',
     required: false, // Changed to optional
   },
+  completionRate: {
+    type: Number,
+    default: 0,
+    min: 0,
+    max: 100,
+  },
   createdAt: {
     type: Date,
     default: Date.now,
