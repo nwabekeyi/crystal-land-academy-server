@@ -102,7 +102,7 @@ const teacherSchema = new mongoose.Schema(
       {
         type: ObjectId,
         ref: "Subject",
-        required: false, // Subjects are optional and allowed for all classes
+        required: false,
       },
     ],
     teachingAssignments: [teachingAssignmentSchema],
@@ -113,7 +113,8 @@ const teacherSchema = new mongoose.Schema(
     },
     reviews: [
       {
-        id: { type: mongoose.Schema.Types.ObjectId,}
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Review",
       },
     ],
     NIN: {
@@ -146,7 +147,9 @@ const teacherSchema = new mongoose.Schema(
     },
     rating: {
       type: Number,
-      default: 0
+      default: 0,
+      min: [0, "Rating cannot be less than 0"],
+      max: [5, "Rating cannot be more than 5"],
     },
     religion: {
       type: String,
@@ -199,11 +202,8 @@ teachingAssignmentSchema.pre("validate", function (next) {
 
 // Ensure subjects are allowed for all classes and subclasses
 teacherSchema.pre("validate", function (next) {
-  // No restriction on subjects for non-SS classes
   if (this.teachingAssignments.length > 0 && this.subject.length > 0) {
-    const assignment = this.teachingAssignments[0];
-    // Only validate that subjects exist (handled in service)
-    // No check for SS-only or subclass A restrictions
+    // No specific restrictions on subjects
   }
   next();
 });
