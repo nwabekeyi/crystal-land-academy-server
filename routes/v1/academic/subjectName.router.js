@@ -17,8 +17,8 @@ subjectNameRouter
 
 subjectNameRouter
   .route("/subject-names/:id")
-  .get(isLoggedIn, isAdmin, getSubjectNameController)
-  .patch(isLoggedIn, isAdmin, updateSubjectNameController)
-  .delete(isLoggedIn, isAdmin, deleteSubjectNameController);
+  .get(isLoggedIn, getSubjectNameController)
+  .patch(isLoggedIn, updateSubjectNameController)
+  .delete(isLoggedIn, deleteSubjectNameController);
 
 module.exports = subjectNameRouter;

@@ -1,4 +1,3 @@
-const mongoose = require('mongoose');
 const Timetable = require('../../models/Academic/timeTable.model');
 const ClassLevel = require('../../models/Academic/class.model');
 const Subject = require('../../models/Academic/subject.model');
@@ -323,6 +322,8 @@ const createTimetableService = async (data, res) => {
       }
     }
 
+    
+
     const timetable = await Timetable.create({
       classLevel,
       subclassLetter,
@@ -480,6 +481,7 @@ const updateTimetableService = async (timetableId, data, res) => {
 /**
  * Delete a timetable (admin only)
  */
+
 const deleteTimetableService = async (timetableId, res) => {
   try {
     const timetable = await Timetable.findByIdAndDelete(timetableId);
@@ -488,10 +490,25 @@ const deleteTimetableService = async (timetableId, res) => {
     }
 
     const classLevel = await ClassLevel.findById(timetable.classLevel);
+    if (!classLevel) {
+      return responseStatus(res, 404, 'failed', 'ClassLevel not found');
+    }
+
     const subclass = classLevel.subclasses.find((sub) => sub.letter === timetable.subclassLetter);
-    const studentIds = subclass.students;
+    if (!subclass) {
+      return responseStatus(res, 400, 'failed', `Subclass ${timetable.subclassLetter} not found`);
+    }
+
+    // Extract student IDs, handling both ObjectId and object formats
+    const studentIds = subclass.students.map((student) => {
+      if (student && typeof student === 'object' && student.id) {
+        return student.id; // Extract ObjectId from { id, amountPaid }
+      }
+      return student; // Assume it's already an ObjectId
+    }).filter((id) => id && mongoose.Types.ObjectId.isValid(id)); // Filter valid ObjectIds
 
     for (const studentId of studentIds) {
+      console.log('Student ID:', studentId)
       const student = await Student.findById(studentId);
       if (student) {
         const allAttendance = await Timetable.aggregate([

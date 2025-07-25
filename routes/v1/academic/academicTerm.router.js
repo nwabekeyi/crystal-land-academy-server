@@ -1,4 +1,3 @@
-// academicTerm.router.js
 const express = require("express");
 const academicTermRouter = express.Router();
 const isAdmin = require("../../../middlewares/isAdmin");
@@ -10,6 +9,7 @@ const {
   getAcademicTermController,
   updateAcademicTermController,
   deleteAcademicTermController,
+  getCurrentAcademicTermController,
 } = require("../../../controllers/academic/academicTerm.controller");
 
 academicTermRouter
@@ -20,6 +20,10 @@ academicTermRouter
 academicTermRouter
   .route("/academic-term/year/:academicYearId")
   .get(isLoggedIn, getAcademicTermsByYearController);
+
+academicTermRouter
+  .route("/academic-term/current")
+  .get(isLoggedIn, getCurrentAcademicTermController);
 
 academicTermRouter
   .route("/academic-term/:id")

@@ -1,16 +1,15 @@
-// controllers/academicTerm.controller.js
 const {
   createAcademicTermService,
-  getAcademicTermsService,
   getAcademicTermsByYearService,
   getAcademicTermService,
   updateAcademicTermService,
   deleteAcademicTermService,
+  getCurrentAcademicTermService,
 } = require("../../services/academic/academicTerm.service");
 
 /**
  * @desc Create Academic Term
- * @route POST /api/v1/academic-Terms
+ * @route POST /api/v1/academic-term
  * @access Private
  */
 exports.createAcademicTermController = async (req, res) => {
@@ -19,16 +18,16 @@ exports.createAcademicTermController = async (req, res) => {
 
 /**
  * @desc Get all Academic Terms
- * @route GET /api/v1/academic-Terms
+ * @route GET /api/v1/academic-term
  * @access Private
  */
 exports.getAcademicTermsController = async (req, res) => {
-  return getAcademicTermsService(res);
+  return getAcademicTermService(req.userAuth.id, res);
 };
 
 /**
  * @desc Get Academic Terms by Academic Year
- * @route GET /api/v1/academic-Terms/year/:academicYearId
+ * @route GET /api/v1/academic-term/year/:academicYearId
  * @access Private
  */
 exports.getAcademicTermsByYearController = async (req, res) => {
@@ -36,8 +35,17 @@ exports.getAcademicTermsByYearController = async (req, res) => {
 };
 
 /**
+ * @desc Get Current Academic Term
+ * @route GET /api/v1/academic-term/current
+ * @access Private
+ */
+exports.getCurrentAcademicTermController = async (req, res) => {
+  return getCurrentAcademicTermService(res);
+};
+
+/**
  * @desc Get single Academic Term
- * @route GET /api/v1/academic-Terms/:id
+ * @route GET /api/v1/academic-term/:id
  * @access Private
  */
 exports.getAcademicTermController = async (req, res) => {
@@ -46,7 +54,7 @@ exports.getAcademicTermController = async (req, res) => {
 
 /**
  * @desc Update Academic Term
- * @route PATCH /api/v1/academic-Terms/:id
+ * @route PATCH /api/v1/academic-term/:id
  * @access Private
  */
 exports.updateAcademicTermController = async (req, res) => {
@@ -55,7 +63,7 @@ exports.updateAcademicTermController = async (req, res) => {
 
 /**
  * @desc Delete Academic Term
- * @route DELETE /api/v1/academic-Terms/:id
+ * @route DELETE /api/v1/academic-term/:id
  * @access Private
  */
 exports.deleteAcademicTermController = async (req, res) => {
