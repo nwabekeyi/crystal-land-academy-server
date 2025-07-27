@@ -1,120 +1,88 @@
 // services/academic/curriculum.service.js
 const Curriculum = require("../../models/Academic/curriculum.model");
+const Subject = require("../../models/Academic/subject.model");
+const mongoose = require("mongoose");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
-/**
- * Create Curriculum service.
- *
- * @param {Object} data - The data containing information about the Curriculum.
- * @param {string} data.subjectId - The ID of the subject.
- * @param {string} data.academicTermId - The ID of the academic term.
- * @param {string} data.classLevelId - The ID of the class level.
- * @param {string} data.courseDuration - The duration of the course.
- * @param {Array} data.topics - Array of topics with topic, description, duration, and resources.
- * @param {Object} res - The response object.
- * @returns {Object} - The response object indicating success or failure.
- */
 exports.createCurriculumService = async (data, res) => {
-  const { subjectId, academicTermId, classLevelId, courseDuration, topics } = data;
+  const { subjectId, classLevelId, topics } = data;
 
-  // Check if the Curriculum already exists for this subject, term, and class level
-  const curriculumFound = await Curriculum.findOne({ subjectId, academicTermId, classLevelId });
+  const curriculumFound = await Curriculum.findOne({ subjectId, classLevelId });
   if (curriculumFound) {
-    return responseStatus(res, 402, "failed", "Curriculum already exists for this subject, term, and class");
+    return responseStatus(res, 402, "failed", "Curriculum already exists for this subject and class");
   }
 
-  // Create the Curriculum
   const curriculumCreated = await Curriculum.create({
     subjectId,
-    academicTermId,
     classLevelId,
-    courseDuration,
     topics,
   });
 
-  // Populate the response
   const populatedCurriculum = await Curriculum.findById(curriculumCreated._id)
     .populate('subjectId', 'name')
-    .populate('academicTermId', 'name')
     .populate('classLevelId', 'name');
 
   return responseStatus(res, 200, "success", populatedCurriculum);
 };
 
-/**
- * Get all Curricula service.
- *
- * @param {Object} query - Optional query parameters for filtering.
- * @param {string} query.academicTermId - Filter by academic term ID.
- * @param {string} query.classLevelId - Filter by class level ID.
- * @returns {Array} - An array of all Curricula.
- */
-exports.getAllCurriculaService = async (query) => {
-  const { academicTermId, classLevelId } = query;
+exports.getAllCurriculaService = async (query, res) => {
+  const { classLevelId, subjectId } = query;
   const filter = {};
-  if (academicTermId) filter.academicTermId = academicTermId;
+
   if (classLevelId) filter.classLevelId = classLevelId;
-  return await Curriculum.find(filter)
+  if (subjectId) filter.subjectId = subjectId;
+
+  if (classLevelId && subjectId) {
+    const subject = await Subject.findById(subjectId).populate('classLevelSubclasses.classLevel');
+    if (!subject) {
+      return responseStatus(res, 404, "failed", "Subject not found");
+    }
+
+    const isValidClassLevel = subject.classLevelSubclasses.some(cls => 
+      cls.classLevel._id.toString() === classLevelId.toString()
+    );
+
+    if (!isValidClassLevel) {
+      return responseStatus(res, 400, "failed", "Subject is not associated with the specified class level");
+    }
+  }
+
+  const curricula = await Curriculum.find(filter)
     .populate('subjectId', 'name')
-    .populate('academicTermId', 'name')
     .populate('classLevelId', 'name');
+
+  return responseStatus(res, 200, "success", curricula);
 };
 
-/**
- * Get a single Curriculum by ID service.
- *
- * @param {string} id - The ID of the Curriculum.
- * @returns {Object} - The Curriculum object.
- */
 exports.getCurriculumByIdService = async (id) => {
   return await Curriculum.findById(id)
     .populate('subjectId', 'name')
-    .populate('academicTermId', 'name')
     .populate('classLevelId', 'name');
 };
 
-/**
- * Update Curriculum data service.
- *
- * @param {Object} data - The data containing updated information about the Curriculum.
- * @param {string} data.subjectId - The updated ID of the subject.
- * @param {string} data.academicTermId - The updated ID of the academic term.
- * @param {string} data.classLevelId - The updated ID of the class level.
- * @param {string} data.courseDuration - The updated duration of the course.
- * @param {Array} data.topics - Updated array of topics.
- * @param {string} id - The ID of the Curriculum to be updated.
- * @param {Object} res - The response object.
- * @returns {Object} - The response object indicating success or failure.
- */
 exports.updateCurriculumService = async (data, id, res) => {
-  const { subjectId, academicTermId, classLevelId, courseDuration, topics } = data;
+  const { subjectId, classLevelId, topics } = data;
 
-  // Check if another curriculum exists with the updated subject, term, and class
   const curriculumFound = await Curriculum.findOne({
     subjectId,
-    academicTermId,
     classLevelId,
     _id: { $ne: id },
   });
   if (curriculumFound) {
-    return responseStatus(res, 402, "failed", "Curriculum already exists for this subject, term, and class");
+    return responseStatus(res, 402, "failed", "Curriculum already exists for this subject and class");
   }
 
-  // Update the Curriculum
   const curriculum = await Curriculum.findByIdAndUpdate(
     id,
     {
       subjectId,
-      academicTermId,
       classLevelId,
-      courseDuration,
       topics,
       updatedAt: Date.now(),
     },
     { new: true }
   )
     .populate('subjectId', 'name')
-    .populate('academicTermId', 'name')
     .populate('classLevelId', 'name');
 
   if (!curriculum) {
@@ -124,13 +92,6 @@ exports.updateCurriculumService = async (data, id, res) => {
   return responseStatus(res, 200, "success", curriculum);
 };
 
-/**
- * Delete Curriculum data service.
- *
- * @param {string} id - The ID of the Curriculum to be deleted.
- * @param {Object} res - The response object.
- * @returns {Object} - The response object indicating success or failure.
- */
 exports.deleteCurriculumService = async (id, res) => {
   const curriculum = await Curriculum.findByIdAndDelete(id);
   if (!curriculum) {
@@ -138,4 +99,157 @@ exports.deleteCurriculumService = async (id, res) => {
   }
 
   return responseStatus(res, 200, "success", "Curriculum deleted");
+};
+
+exports.addTopicToCurriculumService = async (curriculumId, topicData, res) => {
+  const curriculum = await Curriculum.findById(curriculumId);
+  if (!curriculum) {
+    return responseStatus(res, 404, "failed", "Curriculum not found");
+  }
+
+  curriculum.topics.push(topicData);
+  await curriculum.save();
+
+  const updatedCurriculum = await Curriculum.findById(curriculumId)
+    .populate('subjectId', 'name')
+    .populate('classLevelId', 'name');
+
+  return responseStatus(res, 200, "success", updatedCurriculum);
+};
+
+exports.updateTopicInCurriculumService = async (curriculumId, topicId, topicData, res) => {
+  const curriculum = await Curriculum.findById(curriculumId);
+  if (!curriculum) {
+    return responseStatus(res, 404, "failed", "Curriculum not found");
+  }
+
+  const topic = curriculum.topics.id(topicId);
+  if (!topic) {
+    return responseStatus(res, 404, "failed", "Topic not found");
+  }
+
+  topic.set(topicData);
+  await curriculum.save();
+
+  const updatedCurriculum = await Curriculum.findById(curriculumId)
+    .populate('subjectId', 'name')
+    .populate('classLevelId', 'name');
+
+  return responseStatus(res, 200, "success", updatedCurriculum);
+};
+
+exports.removeTopicFromCurriculumService = async (curriculumId, topicId, res) => {
+  const curriculum = await Curriculum.findById(curriculumId);
+  if (!curriculum) {
+    return responseStatus(res, 404, "failed", "Curriculum not found");
+  }
+
+  const topic = curriculum.topics.id(topicId);
+  if (!topic) {
+    return responseStatus(res, 404, "failed", "Topic not found");
+  }
+
+  curriculum.topics.pull(topicId);
+  await curriculum.save();
+
+  const updatedCurriculum = await Curriculum.findById(curriculumId)
+    .populate('subjectId', 'name')
+    .populate('classLevelId', 'name');
+
+  return responseStatus(res, 200, "success", updatedCurriculum);
+};
+
+exports.markTopicAsCompletedService = async (curriculumId, topicId, res) => {
+  try {
+    const curriculum = await Curriculum.findById(curriculumId);
+    if (!curriculum) {
+      return responseStatus(res, 404, "failed", "Curriculum not found");
+    }
+
+    const topic = curriculum.topics.id(topicId);
+    if (!topic) {
+      return responseStatus(res, 404, "failed", "Topic not found");
+    }
+
+    // Mark topic as completed
+    topic.isCompleted = true;
+
+    // Calculate completion rate: (completed topics / total topics) * 100
+    const totalTopics = curriculum.topics.length;
+    const completedTopics = curriculum.topics.filter(t => t.isCompleted).length;
+    curriculum.completionRate = totalTopics > 0 ? (completedTopics / totalTopics) * 100 : 0;
+
+    // Save the updated curriculum
+    await curriculum.save();
+
+    // Populate subjectId and classLevelId for response
+    const updatedCurriculum = await Curriculum.findById(curriculumId)
+      .populate('subjectId', 'name')
+      .populate('classLevelId', 'name');
+
+    return responseStatus(res, 200, "success", updatedCurriculum);
+  } catch (error) {
+    return responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+exports.getCurriculaForTeacherService = async (teacherId, res) => {
+  try {
+    const teacher = await mongoose.model('Teacher').findById(teacherId).populate('subject');
+    if (!teacher) {
+      return responseStatus(res, 404, "failed", "Teacher not found");
+    }
+
+    const subjectIds = teacher.subject.map(sub => sub._id);
+
+    const curricula = await Curriculum.find({ subjectId: { $in: subjectIds } })
+      .populate('subjectId', 'name')
+      .populate('classLevelId', 'name');
+
+      // console.log(curricula);
+
+    // const validCurricula = [];
+    // for (const curriculum of curricula) {
+    //   const subject = await Subject.findById(curriculum.subjectId);
+    //   const isValid = subject.classLevelSubclasses.some(cls =>
+    //     cls.classLevel.toString() === curriculum.classLevelId.toString()
+    //   );
+    //   if (isValid) {
+    //     validCurricula.push(curriculum);
+    //   }
+    // }
+
+    return responseStatus(res, 200, "success", curricula);
+  } catch (error) {
+    return responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+exports.getCurriculaForStudentService = async (classLevelId, res) => {
+  try {
+    // Validate classLevelId
+    const classLevel = await mongoose.model('ClassLevel').findById(classLevelId);
+    if (!classLevel) {
+      return responseStatus(res, 404, "failed", "Class level not found");
+    }
+
+    // Find all subjects associated with the class level
+    const subjects = await Subject.find({
+      'classLevelSubclasses.classLevel': classLevelId,
+    }).select('_id');
+
+    const subjectIds = subjects.map(sub => sub._id);
+
+    // Find all curricula for the class level and associated subjects
+    const curricula = await Curriculum.find({
+      classLevelId,
+      subjectId: { $in: subjectIds },
+    })
+      .populate('subjectId', 'name')
+      .populate('classLevelId', 'name');
+
+    return responseStatus(res, 200, "success", curricula);
+  } catch (error) {
+    return responseStatus(res, 500, "failed", error.message);
+  }
 };

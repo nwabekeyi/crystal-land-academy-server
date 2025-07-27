@@ -5,6 +5,7 @@ const Student = require('../../models/Students/students.model');
 const AcademicYear = require('../../models/Academic/academicYear.model');
 const Teacher = require('../../models/Staff/teachers.model');
 const responseStatus = require('../../handlers/responseStatus.handler');
+const mongoose = require('mongoose');
 
 /**
  * Get the current academic year
@@ -26,6 +27,23 @@ const calculateEndTime = (startTime, numberOfPeriods) => {
   const endHours = Math.floor(totalMinutes / 60);
   const endMinutes = totalMinutes % 60;
   return `${endHours.toString().padStart(2, '0')}:${endMinutes.toString().padStart(2, '0')}`;
+};
+
+/**
+ * Validate time range (07:00 AM - 06:00 PM)
+ */
+const validateTimeRange = (startTime, numberOfPeriods) => {
+  const [hours, minutes] = startTime.split(':').map(Number);
+  const startMinutes = hours * 60 + minutes;
+  if (startMinutes < 7 * 60 || startMinutes > 18 * 60) {
+    throw new Error('Start time must be between 07:00 AM and 06:00 PM');
+  }
+  const endTime = calculateEndTime(startTime, numberOfPeriods);
+  const [endHours, endMinutes] = endTime.split(':').map(Number);
+  const endMinutesTotal = endHours * 60 + endMinutes;
+  if (endMinutesTotal > 18 * 60) {
+    throw new Error('End time cannot exceed 06:00 PM');
+  }
 };
 
 /**
@@ -257,6 +275,9 @@ const createTimetableService = async (data, res) => {
       return responseStatus(res, 400, 'failed', 'numberOfPeriods must be a positive integer');
     }
 
+    // Validate time range (07:00 AM - 06:00 PM)
+    validateTimeRange(startTime, numberOfPeriods);
+
     const classLevelDoc = await ClassLevel.findById(classLevel).select('name section subclasses');
     if (!classLevelDoc) {
       return responseStatus(res, 404, 'failed', 'ClassLevel not found');
@@ -322,8 +343,6 @@ const createTimetableService = async (data, res) => {
       }
     }
 
-    
-
     const timetable = await Timetable.create({
       classLevel,
       subclassLetter,
@@ -376,6 +395,13 @@ const updateTimetableService = async (timetableId, data, res) => {
     const finalClassLevel = classLevel || existingTimetable.classLevel;
     const finalSubclassLetter = subclassLetter || existingTimetable.subclassLetter;
     const finalSubject = subject || existingTimetable.subject;
+    const finalStartTime = startTime || existingTimetable.startTime;
+    const finalNumberOfPeriods = numberOfPeriods !== undefined ? numberOfPeriods : existingTimetable.numberOfPeriods;
+
+    // Validate time range if startTime or numberOfPeriods is provided
+    if (startTime || numberOfPeriods !== undefined) {
+      validateTimeRange(finalStartTime, finalNumberOfPeriods);
+    }
 
     const classLevelDoc = await ClassLevel.findById(finalClassLevel).select('name section subclasses');
     if (!classLevelDoc) {
@@ -411,7 +437,7 @@ const updateTimetableService = async (timetableId, data, res) => {
       }
     }
 
-    if (finalClassLevel && finalSubclassLetter && dayOfWeek && startTime && numberOfPeriods) {
+    if (finalClassLevel && finalSubclassLetter && dayOfWeek && finalStartTime && finalNumberOfPeriods) {
       const existingTimetables = await Timetable.find({
         classLevel: finalClassLevel,
         subclassLetter: finalSubclassLetter,
@@ -425,7 +451,7 @@ const updateTimetableService = async (timetableId, data, res) => {
       });
 
       for (const existing of existingTimetables) {
-        if (existing.subject.toString() !== finalSubject.toString() && isTimeOverlap(startTime, numberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
+        if (existing.subject.toString() !== finalSubject.toString() && isTimeOverlap(finalStartTime, finalNumberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
           const conflictingSubject = await Subject.findById(existing.subject);
           return responseStatus(res, 400, 'failed', `Conflict: Another subject (${conflictingSubject.name}) is scheduled for ${finalClassLevel} ${finalSubclassLetter} on ${dayOfWeek} during the requested time`);
         }
@@ -440,7 +466,7 @@ const updateTimetableService = async (timetableId, data, res) => {
         });
 
         for (const existing of teacherTimetables) {
-          if (isTimeOverlap(startTime, numberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
+          if (isTimeOverlap(finalStartTime, finalNumberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
             const conflictingSubject = await Subject.findById(existing.subject);
             return responseStatus(res, 400, 'failed', `Conflict: Teacher is already scheduled for subject ${conflictingSubject.name} on ${dayOfWeek} during the requested time`);
           }
@@ -454,8 +480,8 @@ const updateTimetableService = async (timetableId, data, res) => {
       subject: finalSubject,
       teacher,
       dayOfWeek,
-      startTime,
-      numberOfPeriods,
+      startTime: finalStartTime,
+      numberOfPeriods: finalNumberOfPeriods,
       location,
       academicYear: currentAcademicYear,
     };
@@ -481,7 +507,6 @@ const updateTimetableService = async (timetableId, data, res) => {
 /**
  * Delete a timetable (admin only)
  */
-
 const deleteTimetableService = async (timetableId, res) => {
   try {
     const timetable = await Timetable.findByIdAndDelete(timetableId);
@@ -508,7 +533,7 @@ const deleteTimetableService = async (timetableId, res) => {
     }).filter((id) => id && mongoose.Types.ObjectId.isValid(id)); // Filter valid ObjectIds
 
     for (const studentId of studentIds) {
-      console.log('Student ID:', studentId)
+      console.log('Student ID:', studentId);
       const student = await Student.findById(studentId);
       if (student) {
         const allAttendance = await Timetable.aggregate([
