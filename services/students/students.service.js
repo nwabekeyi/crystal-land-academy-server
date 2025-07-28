@@ -12,7 +12,8 @@ const AcademicYear = require("../../models/Academic/academicYear.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const { deleteFromCloudinary } = require("../../middlewares/fileUpload");
 const generateStudentId = require("./generateStudentId"); // Adjust path as needed
-
+const mongoose = require('mongoose');
+const StudentPayment = require('../../models/Academic/schoolFees.model')
 /**
  * Admin registration service for creating a new student.
  * @param {Object} data - The data containing information about the new student.
