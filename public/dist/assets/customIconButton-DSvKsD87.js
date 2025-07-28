@@ -1,1 +1,0 @@
-import{j as s,R as e}from"./index-CIScX54F.js";import{I as m}from"./IconButton-Dl6X1a01.js";const p=({onClick:o,icon:n,title:x,...t})=>s.jsx(m,{title:x,onClick:o,sx:{fontSize:{xs:"12px",sm:"12px",md:"18px",lg:"18px",xl:"18px"},...t.sx},...t,children:e.cloneElement(n,{fontSize:"inherit"})});export{p as C};
