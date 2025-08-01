@@ -10,7 +10,7 @@ const doDateRangesIntersect = (start1, end1, start2, end2) => {
 
 // Helper function to validate isCurrent term date constraints
 const validateCurrentTermDates = (startDate, endDate, termName, res) => {
-  const now = new Date('2025-07-23T20:46:00+01:00'); // 08:46 PM WAT, July 23, 2025
+  const now = new Date(); // Use current date and time
   const oneMonthFromNow = new Date(now);
   oneMonthFromNow.setMonth(now.getMonth() + 1);
 
@@ -25,6 +25,18 @@ const validateCurrentTermDates = (startDate, endDate, termName, res) => {
     return responseStatus(res, 400, "failed", `Term ${termName} cannot be current: end date is in the past`);
   }
 
+  return null;
+};
+
+// Helper function to validate if academic year is current when term is marked as current
+const validateCurrentTermAcademicYear = async (academicYearId, termName, res) => {
+  const academicYear = await AcademicYear.findById(academicYearId);
+  if (!academicYear) {
+    return responseStatus(res, 404, "failed", "Academic Year not found");
+  }
+  if (!academicYear.isCurrent) {
+    return responseStatus(res, 400, "failed", `Term ${termName} cannot be set as current: the associated academic year is not the current academic year`);
+  }
   return null;
 };
 
@@ -69,8 +81,13 @@ exports.createAcademicTermService = async (data, userId, res) => {
       return responseStatus(res, 400, "failed", `Term ${term.name} start date must be before end date`);
     }
     if (term.isCurrent) {
-      const validationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
-      if (validationError) return validationError;
+      // Validate current term dates
+      const dateValidationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
+      if (dateValidationError) return dateValidationError;
+
+      // Validate if academic year is current
+      const yearValidationError = await validateCurrentTermAcademicYear(academicYearId, term.name, res);
+      if (yearValidationError) return yearValidationError;
     }
   }
 
@@ -173,8 +190,13 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
         return responseStatus(res, 400, "failed", `Term ${term.name} start date must be before end date`);
       }
       if (term.isCurrent) {
-        const validationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
-        if (validationError) return validationError;
+        // Validate current term dates
+        const dateValidationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
+        if (dateValidationError) return dateValidationError;
+
+        // Validate if academic year is current
+        const yearValidationError = await validateCurrentTermAcademicYear(targetAcademicYearId, term.name, res);
+        if (yearValidationError) return yearValidationError;
       }
     }
 
@@ -371,3 +393,4 @@ exports.deleteAcademicTermService = async (id, res) => {
 
   return responseStatus(res, 200, "success", "Academic Term deleted successfully");
 };
+
