@@ -1,4 +1,3 @@
-// src/services/staff/studentDashboardService.js
 const mongoose = require('mongoose');
 const { ObjectId } = mongoose.Types;
 const Student = require('../../models/Students/students.model');
@@ -8,10 +7,10 @@ const ClassLevel = require('../../models/Academic/class.model');
 const StudentPayment = require('../../models/Academic/schoolFees.model');
 const ExamResult = require('../../models/Academic/exams.model');
 const Subject = require('../../models/Academic/subject.model');
+const Assignment = require('../../models/Academic/assignment.model'); // Correct import
 
-
-// Placeholder for Attendance model
-const Attendance = mongoose.model('Attendance', new mongoose.Schema({
+// Placeholder for Attendance model (check if defined elsewhere)
+const Attendance = mongoose.models.Attendance || mongoose.model('Attendance', new mongoose.Schema({
   student: { type: ObjectId, ref: 'Student', required: true },
   timetable: { type: ObjectId, ref: 'Timetable', required: true },
   academicTerm: { type: ObjectId, ref: 'AcademicTerm', required: true },
@@ -19,24 +18,14 @@ const Attendance = mongoose.model('Attendance', new mongoose.Schema({
   date: { type: Date, required: true },
 }), 'attendances');
 
-// Placeholder for Resource model
-const Resource = mongoose.model('Resource', new mongoose.Schema({
+// Placeholder for Resource model (check if defined elsewhere)
+const Resource = mongoose.models.Resource || mongoose.model('Resource', new mongoose.Schema({
   title: { type: String, required: true },
   url: { type: String, required: true },
   subject: { type: ObjectId, ref: 'Subject' },
   classLevel: { type: ObjectId, ref: 'ClassLevel' },
   academicYear: { type: ObjectId, ref: 'AcademicYear', required: true },
 }), 'resources');
-
-// Placeholder for Assignment model
-const Assignment = mongoose.model('Assignment', new mongoose.Schema({
-  title: { type: String, required: true },
-  dueDate: { type: Date, required: true },
-  subject: { type: ObjectId, ref: 'Subject', required: true },
-  classLevel: { type: ObjectId, ref: 'ClassLevel', required: true },
-  academicTerm: { type: ObjectId, ref: 'AcademicTerm', required: true },
-  submissions: [{ studentId: { type: ObjectId, ref: 'Student' }, submitted: { type: Boolean, default: false } }],
-}), 'assignments');
 
 const getStudentDashboardData = async (studentId) => {
   try {
@@ -194,9 +183,9 @@ const getStudentDashboardData = async (studentId) => {
 
     // Fetch assignments
     const assignments = await Assignment.find({
-      classLevel: student.currentClassLevel.classLevelId,
-      academicTerm: academicTerm._id,
-    }).select('title dueDate subject submissions');
+      classId: student.currentClassLevel.classLevelId, // Adjusted to match schema
+      term: currentTerm.name, // Adjusted to match schema
+    }).select('id title dueDate description submissions');
 
     // Fetch timetable with attendance
     const timetable = await Attendance.find({
