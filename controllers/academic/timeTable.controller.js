@@ -28,11 +28,11 @@ const createTimetableController = async (req, res) => {
 };
 
 const updateTimetableController = async (req, res) => {
-  await updateTimetableService(req.params.id, req.body, res);
+  await updateTimetableService(req.params.timetableId, req.body, res);
 };
 
 const deleteTimetableController = async (req, res) => {
-  await deleteTimetableService(req.params.id, res);
+  await deleteTimetableService(req.params.timetableId, res);
 };
 
 const markAttendanceController = async (req, res) => {

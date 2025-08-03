@@ -1,8 +1,8 @@
-// src/routes/staff/index.js
 const express = require('express');
 const router = express.Router();
-const studentDashboardController = require('../../../controllers/students/studentDashboardData.comtroller');
-
-router.get('/student-dashboard/:studentId', studentDashboardController);
+const  getStudentDashboard = require('../../../controllers/students/studentDashboardData.comtroller');
+const isStudent = require('../../../middlewares/isStudent'); // Assuming middleware path
+const isLoggedIn = require('../../../middlewares/isLoggedIn')
+router.get('/student-dashboard', isLoggedIn, isStudent, getStudentDashboard); // Removed :studentId
 
 module.exports = router;

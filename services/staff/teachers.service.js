@@ -10,14 +10,7 @@ const ClassLevel = require("../../models/Academic/class.model");
 const generateToken = require("../../utils/tokenGenerator");
 const { deleteFromCloudinary } = require("../../middlewares/fileUpload");
 const responseStatus = require("../../handlers/responseStatus.handler");
-
-// Custom error class for service errors
-class ServiceError extends Error {
-  constructor(statusCode, message) {
-    super(message);
-    this.statusCode = statusCode;
-  }
-}
+const Results = require('../../models/Academic/results.model');
 
 /**
  * Service to create a new teacher
@@ -66,8 +59,8 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
 
     // Validate classLevel and subclassLetter if provided
     if (classLevel || subclassLetter) {
-      if (!classLevel || !subclassLetter) {
-        return responseStatus(res, 400, "failed", "Both classLevel and subclassLetter are required if one is provided");
+      if (!classLevel || !subclassLetter || !subject) {
+        return responseStatus(res, 400, "failed", "Subject, classLevel, and subclassLetter are required if one is provided");
       }
       const classLevelDoc = await ClassLevel.findById(classLevel);
       if (!classLevelDoc) {
@@ -75,9 +68,6 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
       }
       if (!classLevelDoc.subclasses.some((sub) => sub.letter === subclassLetter)) {
         return responseStatus(res, 400, "failed", `Subclass ${subclassLetter} not found in ClassLevel`);
-      }
-      if (!subject) {
-        return responseStatus(res, 400, "failed", "Subject is required when assigning classLevel and subclassLetter");
       }
     }
 
@@ -137,17 +127,49 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
     currentAcademicYear.teachers.push(newTeacher._id);
     await currentAcademicYear.save();
 
-    // Add teacher to ClassLevel.teachers if classLevel and subclassLetter provided
-    if (classLevel && subclassLetter) {
+    // Add teacher to ClassLevel.teachers and ClassLevel.subclasses.subjects.teachers
+    if (classLevel && subclassLetter && subject) {
       const classLevelDoc = await ClassLevel.findById(classLevel);
       if (classLevelDoc) {
+        // Add to ClassLevel.teachers
         const teacherEntry = {
           teacherId: newTeacher._id,
-          name: `${newTeacher.firstName} ${newTeacher.lastName}`,
+          firstName: newTeacher.firstName,
+          lastName: newTeacher.lastName,
         };
         if (!classLevelDoc.teachers.some((t) => t.teacherId.toString() === newTeacher._id.toString())) {
           classLevelDoc.teachers.push(teacherEntry);
+        }
+
+        // Add to ClassLevel.subclasses.subjects.teachers
+        const subclass = classLevelDoc.subclasses.find((sub) => sub.letter === subclassLetter);
+        if (subclass) {
+          let subjectEntry = subclass.subjects.find((s) => s.subject.toString() === subject);
+          if (!subjectEntry) {
+            subjectEntry = { subject, teachers: [] };
+            subclass.subjects.push(subjectEntry);
+          }
+          if (!subjectEntry.teachers.includes(newTeacher._id)) {
+            subjectEntry.teachers.push(newTeacher._id);
+          }
           await classLevelDoc.save();
+        } else {
+          return responseStatus(res, 400, "failed", `Subclass ${subclassLetter} not found in ClassLevel during teacher assignment`);
+        }
+
+        // Add teacher to Subject.classLevelSubclasses.teachers
+        if (subjectDoc) {
+          let classLevelSubclass = subjectDoc.classLevelSubclasses.find(
+            (cls) => cls.classLevel.toString() === classLevel && cls.subclassLetter === subclassLetter
+          );
+          if (!classLevelSubclass) {
+            classLevelSubclass = { classLevel, subclassLetter, teachers: [] };
+            subjectDoc.classLevelSubclasses.push(classLevelSubclass);
+          }
+          if (!classLevelSubclass.teachers.includes(newTeacher._id)) {
+            classLevelSubclass.teachers.push(newTeacher._id);
+          }
+          await subjectDoc.save();
         }
       }
     }
@@ -216,7 +238,7 @@ exports.getAllTeachersService = async (query, res) => {
     console.log('Raw Query Parameters:', query);
 
     const {
-      page = 1, // Frontend sends 1-based indexing
+      page = 1,
       limit = 20,
       section,
       className,
@@ -272,7 +294,7 @@ exports.getAllTeachersService = async (query, res) => {
         select: 'name _id',
         options: { strictPopulate: false }
       })
-      .skip((parseInt(page) - 1) * parseInt(limit)) // Adjust for 1-based indexing
+      .skip((parseInt(page) - 1) * parseInt(limit))
       .limit(parseInt(limit))
       .lean();
 
@@ -303,9 +325,9 @@ exports.getAllTeachersService = async (query, res) => {
           religion: teacher.religion || '',
           tribe: teacher.tribe || '',
           NIN: teacher.NIN || '',
-          formalSchool: '', // Not applicable for teachers
+          formalSchool: '',
           email: teacher.email || '',
-          guardians: [], // Not applicable for teachers
+          guardians: [],
           classLevelId: teachingAssignment ? teachingAssignment.classLevelId || '' : '',
           currentClassLevel: teachingAssignment ? {
             section: teachingAssignment.section || '',
@@ -321,14 +343,13 @@ exports.getAllTeachersService = async (query, res) => {
               }
             } : {}
           } : {},
-          boardingStatus: null, // Not applicable for teachers
-          isGraduated: false, // Not applicable for teachers
+          boardingStatus: null,
+          isGraduated: false,
           isSuspended: teacher.isSuspended || false,
           isWithdrawn: teacher.isWithdrawn || false,
           createdAt: teacher.createdAt ? teacher.createdAt.toISOString() : '',
           updatedAt: teacher.updatedAt ? teacher.updatedAt.toISOString() : '',
           __v: teacher.__v || 0,
-          sn: index + 1 + (parseInt(page) - 1) * parseInt(limit),
           subject: teacher.subject || null,
           qualification: teacher.qualification || '',
           phoneNumber: teacher.phoneNumber || '',
@@ -385,9 +406,9 @@ exports.getTeacherProfileService = async (teacherId, res) => {
       religion: teacher.religion || '',
       tribe: teacher.tribe || '',
       NIN: teacher.NIN || '',
-      formalSchool: '', // Not applicable for teachers
+      formalSchool: '',
       email: teacher.email || '',
-      guardians: [], // Not applicable for teachers
+      guardians: [],
       classLevelId: teachingAssignment ? teachingAssignment.classLevelId || '' : '',
       currentClassLevel: teachingAssignment ? {
         section: teachingAssignment.section || '',
@@ -403,8 +424,8 @@ exports.getTeacherProfileService = async (teacherId, res) => {
           }
         } : {}
       } : {},
-      boardingStatus: null, // Not applicable for teachers
-      isGraduated: false, // Not applicable for teachers
+      boardingStatus: null,
+      isGraduated: false,
       isSuspended: teacher.isSuspended || false,
       isWithdrawn: teacher.isWithdrawn || false,
       createdAt: teacher.createdAt ? teacher.createdAt.toISOString() : '',
@@ -539,9 +560,9 @@ exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
       religion: updatedTeacher.religion || '',
       tribe: updatedTeacher.tribe || '',
       NIN: updatedTeacher.NIN || '',
-      formalSchool: '', // Not applicable for teachers
+      formalSchool: '',
       email: updatedTeacher.email || '',
-      guardians: [], // Not applicable for teachers
+      guardians: [],
       classLevelId: teachingAssignment ? teachingAssignment.classLevelId || '' : '',
       currentClassLevel: teachingAssignment ? {
         section: teachingAssignment.section || '',
@@ -557,8 +578,8 @@ exports.updateTeacherProfileService = async (data, file, teacherId, res) => {
           }
         } : {}
       } : {},
-      boardingStatus: null, // Not applicable for teachers
-      isGraduated: false, // Not applicable for teachers
+      boardingStatus: null,
+      isGraduated: false,
       isSuspended: updatedTeacher.isSuspended || false,
       isWithdrawn: updatedTeacher.isWithdrawn || false,
       createdAt: updatedTeacher.createdAt ? updatedTeacher.createdAt.toISOString() : '',
@@ -713,6 +734,106 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
       (key) => updateData[key] === undefined && delete updateData[key]
     );
 
+    // Remove teacher from previous Subject.classLevelSubclasses.teachers if subject, classLevel, or subclassLetter changes
+    if (subject && classLevel && subclassLetter) {
+      const previousSubjects = await Subject.find({
+        'classLevelSubclasses.teachers': teacherId,
+      });
+      for (const prevSubject of previousSubjects) {
+        for (const cls of prevSubject.classLevelSubclasses) {
+          if (
+            prevSubject._id.toString() !== subject ||
+            cls.classLevel.toString() !== classLevel ||
+            cls.subclassLetter !== subclassLetter
+          ) {
+            cls.teachers = cls.teachers.filter((t) => t.toString() !== teacherId);
+          }
+        }
+        // Remove empty classLevelSubclasses entries
+        prevSubject.classLevelSubclasses = prevSubject.classLevelSubclasses.filter(
+          (cls) => cls.teachers.length > 0
+        );
+        await prevSubject.save();
+      }
+    }
+
+    // Remove teacher from previous ClassLevel.subclasses.subjects.teachers if subject, classLevel, or subclassLetter changes
+    if (subject && classLevel && subclassLetter) {
+      const previousClassLevel = await ClassLevel.findOne({
+        'subclasses.subjects.teachers': teacherId,
+      });
+      if (previousClassLevel) {
+        const previousSubclasses = previousClassLevel.subclasses.filter((sub) =>
+          sub.subjects.some((s) => s.teachers.includes(teacherId))
+        );
+        for (const subclass of previousSubclasses) {
+          for (const subjectEntry of subclass.subjects) {
+            if (
+              subjectEntry.subject.toString() !== subject ||
+              previousClassLevel._id.toString() !== classLevel ||
+              subclass.letter !== subclassLetter
+            ) {
+              subjectEntry.teachers = subjectEntry.teachers.filter(
+                (t) => t.toString() !== teacherId
+              );
+            }
+          }
+          // Remove empty subject entries
+          subclass.subjects = subclass.subjects.filter(
+            (s) => s.teachers.length > 0
+          );
+        }
+        await previousClassLevel.save();
+      }
+    }
+
+    // Add teacher to ClassLevel.teachers and ClassLevel.subclasses.subjects.teachers
+    if (classLevel && subclassLetter && subject) {
+      const classLevelDoc = await ClassLevel.findById(classLevel);
+      if (classLevelDoc) {
+        // Update ClassLevel.teachers
+        const teacherEntry = {
+          teacherId,
+          firstName: updateData.firstName || teacherExist.firstName,
+          lastName: updateData.lastName || teacherExist.lastName,
+        };
+        if (!classLevelDoc.teachers.some((t) => t.teacherId.toString() === teacherId)) {
+          classLevelDoc.teachers.push(teacherEntry);
+        }
+
+        // Update ClassLevel.subclasses.subjects.teachers
+        const subclass = classLevelDoc.subclasses.find((sub) => sub.letter === subclassLetter);
+        if (subclass) {
+          let subjectEntry = subclass.subjects.find((s) => s.subject.toString() === subject);
+          if (!subjectEntry) {
+            subjectEntry = { subject, teachers: [] };
+            subclass.subjects.push(subjectEntry);
+          }
+          if (!subjectEntry.teachers.includes(teacherId)) {
+            subjectEntry.teachers.push(teacherId);
+          }
+          await classLevelDoc.save();
+        } else {
+          return responseStatus(res, 400, "failed", `Subclass ${subclassLetter} not found in ClassLevel during teacher assignment`);
+        }
+
+        // Add teacher to Subject.classLevelSubclasses.teachers
+        if (subjectDoc) {
+          let classLevelSubclass = subjectDoc.classLevelSubclasses.find(
+            (cls) => cls.classLevel.toString() === classLevel && cls.subclassLetter === subclassLetter
+          );
+          if (!classLevelSubclass) {
+            classLevelSubclass = { classLevel, subclassLetter, teachers: [] };
+            subjectDoc.classLevelSubclasses.push(classLevelSubclass);
+          }
+          if (!classLevelSubclass.teachers.includes(teacherId)) {
+            classLevelSubclass.teachers.push(teacherId);
+          }
+          await subjectDoc.save();
+        }
+      }
+    }
+
     const updatedTeacher = await Teacher.findByIdAndUpdate(
       teacherId,
       { $set: updateData },
@@ -741,9 +862,9 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
       religion: updatedTeacher.religion || '',
       tribe: updatedTeacher.tribe || '',
       NIN: updatedTeacher.NIN || '',
-      formalSchool: '', // Not applicable for teachers
+      formalSchool: '',
       email: updatedTeacher.email || '',
-      guardians: [], // Not applicable for teachers
+      guardians: [],
       classLevelId: teachingAssignment ? teachingAssignment.classLevelId || '' : '',
       currentClassLevel: teachingAssignment ? {
         section: teachingAssignment.section || '',
@@ -759,8 +880,8 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
           }
         } : {}
       } : {},
-      boardingStatus: null, // Not applicable for teachers
-      isGraduated: false, // Not applicable for teachers
+      boardingStatus: null,
+      isGraduated: false,
       isSuspended: updatedTeacher.isSuspended || false,
       isWithdrawn: updatedTeacher.isWithdrawn || false,
       createdAt: updatedTeacher.createdAt ? updatedTeacher.createdAt.toISOString() : '',
@@ -773,20 +894,6 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
       linkedInProfile: updatedTeacher.linkedInProfile || '',
       applicationStatus: updatedTeacher.applicationStatus || 'pending',
     };
-
-    if (classLevel && subclassLetter) {
-      const classLevelDoc = await ClassLevel.findById(classLevel);
-      if (classLevelDoc) {
-        const teacherEntry = {
-          teacherId: updatedTeacher._id,
-          name: `${updatedTeacher.firstName} ${updatedTeacher.lastName}`,
-        };
-        if (!classLevelDoc.teachers.some((t) => t.teacherId.toString() === updatedTeacher._id.toString())) {
-          classLevelDoc.teachers.push(teacherEntry);
-          await classLevelDoc.save();
-        }
-      }
-    }
 
     return responseStatus(res, 200, "success", formattedTeacher);
   } catch (error) {
@@ -823,7 +930,7 @@ exports.getAssignedClassesService = async (teacherId, res) => {
         }).select('_id section name subclasses');
 
         if (!classLevel) {
-          return null; // Skip if no matching ClassLevel
+          return null;
         }
 
         return {
@@ -842,16 +949,16 @@ exports.getAssignedClassesService = async (teacherId, res) => {
   }
 };
 
-
 /**
- * Admin delete teacher service.
- * @param {string} teacherId - The ID of the teacher to delete.
- * @param {Object} res - The Express response object.
- * @returns {void} - Sends HTTP response via responseStatus.
+ * Admin delete teacher service
+ * @param {string} teacherId - The ID of the teacher to delete
+ * @param {Object} res - The Express response object
+ * @returns {void} - Sends HTTP response via responseStatus
  */
 exports.adminDeleteTeacherService = async (teacherId, res) => {
   let originalClassLevels = [];
   let originalAcademicYear = null;
+  let originalSubjects = [];
 
   try {
     // 1. Find the teacher
@@ -862,22 +969,63 @@ exports.adminDeleteTeacherService = async (teacherId, res) => {
 
     const profilePictureUrl = teacher.profilePictureUrl;
 
-    // 2. Backup current classLevel assignments
+    // 2. Backup and update ClassLevel assignments
     const classLevels = await ClassLevel.find({ 'teachers.teacherId': teacherId });
     originalClassLevels = classLevels.map((cl) => ({
       _id: cl._id,
       teachers: [...cl.teachers],
+      subclasses: cl.subclasses.map((sub) => ({
+        letter: sub.letter,
+        subjects: sub.subjects.map((s) => ({
+          subject: s.subject,
+          teachers: [...s.teachers],
+        })),
+      })),
     }));
 
-    // Remove teacher from all classLevels
+    // Remove teacher from ClassLevel.teachers and ClassLevel.subclasses.subjects.teachers
     for (const classLevel of classLevels) {
       classLevel.teachers = classLevel.teachers.filter(
         (t) => !t.teacherId.equals(teacherId)
       );
+      for (const subclass of classLevel.subclasses) {
+        for (const subjectEntry of subclass.subjects) {
+          subjectEntry.teachers = subjectEntry.teachers.filter(
+            (t) => !t.equals(teacherId)
+          );
+        }
+        // Remove empty subject entries
+        subclass.subjects = subclass.subjects.filter(
+          (s) => s.teachers.length > 0
+        );
+      }
       await classLevel.save();
     }
 
-    // 3. Backup and update current academic year
+    // 3. Backup and update Subject.classLevelSubclasses.teachers
+    const subjects = await Subject.find({ 'classLevelSubclasses.teachers': teacherId });
+    originalSubjects = subjects.map((sub) => ({
+      _id: sub._id,
+      classLevelSubclasses: sub.classLevelSubclasses.map((cls) => ({
+        classLevel: cls.classLevel,
+        subclassLetter: cls.subclassLetter,
+        teachers: [...cls.teachers],
+      })),
+    }));
+
+    // Remove teacher from Subject.classLevelSubclasses.teachers
+    for (const subject of subjects) {
+      for (const cls of subject.classLevelSubclasses) {
+        cls.teachers = cls.teachers.filter((t) => !t.equals(teacherId));
+      }
+      // Remove empty classLevelSubclasses entries
+      subject.classLevelSubclasses = subject.classLevelSubclasses.filter(
+        (cls) => cls.teachers.length > 0
+      );
+      await subject.save();
+    }
+
+    // 4. Backup and update current academic year
     const academicYear = await AcademicYear.findOne({ isCurrent: true });
     if (academicYear) {
       originalAcademicYear = {
@@ -891,10 +1039,10 @@ exports.adminDeleteTeacherService = async (teacherId, res) => {
       await academicYear.save();
     }
 
-    // 4. Delete results associated with this teacher
+    // 5. Delete results associated with this teacher
     await Results.deleteMany({ teacher: teacherId });
 
-    // 5. Delete profile picture if it exists
+    // 6. Delete profile picture if it exists
     if (profilePictureUrl) {
       try {
         await deleteFromCloudinary(profilePictureUrl);
@@ -904,23 +1052,34 @@ exports.adminDeleteTeacherService = async (teacherId, res) => {
       }
     }
 
-    // 6. Delete the teacher
+    // 7. Delete the teacher
     await Teacher.findByIdAndDelete(teacherId);
 
     return responseStatus(res, 200, "success", {
       message: "Teacher deleted successfully",
       teacherId,
     });
-
   } catch (error) {
     console.error("Deletion failed:", error.message);
 
-    // ✅ Rollback changes
+    // Rollback changes
     try {
       // Restore ClassLevels
       for (const backup of originalClassLevels) {
         await ClassLevel.findByIdAndUpdate(backup._id, {
-          $set: { teachers: backup.teachers },
+          $set: {
+            teachers: backup.teachers,
+            subclasses: backup.subclasses,
+          },
+        });
+      }
+
+      // Restore Subjects
+      for (const backup of originalSubjects) {
+        await Subject.findByIdAndUpdate(backup._id, {
+          $set: {
+            classLevelSubclasses: backup.classLevelSubclasses,
+          },
         });
       }
 
@@ -930,7 +1089,6 @@ exports.adminDeleteTeacherService = async (teacherId, res) => {
           $set: { teachers: originalAcademicYear.teachers },
         });
       }
-
     } catch (rollbackError) {
       console.error("Rollback failed:", rollbackError.message);
     }
@@ -943,11 +1101,12 @@ exports.adminDeleteTeacherService = async (teacherId, res) => {
     );
   }
 };
+
 /**
- * Admin suspend teacher service.
- * @param {string} teacherId - The ID of the teacher to suspend.
- * @param {Object} res - The Express response object.
- * @returns {void} - Sends HTTP response via responseStatus.
+ * Admin suspend teacher service
+ * @param {string} teacherId - The ID of the teacher to suspend
+ * @param {Object} res - The Express response object
+ * @returns {void} - Sends HTTP response via responseStatus
  */
 exports.adminSuspendTeacherService = async (teacherId, res) => {
   try {
@@ -980,36 +1139,30 @@ exports.adminSuspendTeacherService = async (teacherId, res) => {
   }
 };
 
-
 /**
- * Admin unsuspend teacher service.
- * @param {string} teacherId - The ID of the teacher to unsuspend.
- * @param {Object} res - The Express response object.
- * @returns {void} - Sends HTTP response via responseStatus.
+ * Admin unsuspend teacher service
+ * @param {string} teacherId - The ID of the teacher to unsuspend
+ * @param {Object} res - The Express response object
+ * @returns {void} - Sends HTTP response via responseStatus
  */
 exports.adminUnsuspendTeacherService = async (teacherId, res) => {
   try {
-    // Find the teacher
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
       return responseStatus(res, 404, "failed", "Teacher not found");
     }
 
-    // Check if teacher is withdrawn
     if (teacher.isWithdrawn) {
       return responseStatus(res, 400, "failed", "Cannot unsuspend a withdrawn teacher");
     }
 
-    // Check if teacher is already unsuspended
     if (!teacher.isSuspended) {
       return responseStatus(res, 400, "failed", "Teacher is not suspended");
     }
 
-    // Unsuspend the teacher
     teacher.isSuspended = false;
     await teacher.save();
 
-    // Fetch updated teacher data without password
     const formattedTeacher = await Teacher.findById(teacherId)
       .select("-password")
       .lean();

@@ -3,72 +3,60 @@ const Assignment = require('../../models/Academic/assignment.model');
 const Student = require('../../models/Students/students.model');
 const Teacher = require('../../models/Staff/teachers.model');
 const ClassLevel = require('../../models/Academic/class.model');
-const responseStatus = require('../../handlers/responseStatus.handler');
-const { deleteFromCloudinary } = require('../../middlewares/fileUpload');
+const { createMulter, deleteFromCloudinary } = require('../../middlewares/fileUpload');
 
-/**
- * Create an assignment for a class by a teacher.
- * @param {Object} data - Assignment data.
- * @param {Object} res - Response object.
- */
+const upload = createMulter();
+
 exports.createAssignmentService = async (data, res) => {
   const { id, session, term, classLevelId, subclass, title, dueDate, description, teacherId } = data;
 
   try {
-    // Validate required fields
     if (!id || !session || !term || !classLevelId || !title || !dueDate || !description || !teacherId) {
-      return responseStatus(res, 400, 'failed', 'Missing required fields');
+      return res.status(400).json({ status: 'failed', message: 'Missing required fields' });
     }
     if (!mongoose.isValidObjectId(classLevelId) || !mongoose.isValidObjectId(teacherId)) {
-      return responseStatus(res, 400, 'failed', 'Invalid class or teacher ID');
+      return res.status(400).json({ status: 'failed', message: 'Invalid class or teacher ID' });
     }
 
-    // Check teacher exists
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
-      return responseStatus(res, 404, 'failed', 'Teacher not found');
+      return res.status(404).json({ status: 'failed', message: 'Teacher not found' });
     }
 
-    // Check classLevel and teacher authorization
     const classLevel = await ClassLevel.findOne({
       _id: new mongoose.Types.ObjectId(classLevelId),
       'teachers.teacherId': new mongoose.Types.ObjectId(teacherId),
     });
     if (!classLevel) {
-      return responseStatus(res, 403, 'failed', 'Teacher not authorized for this class');
+      return res.status(403).json({ status: 'failed', message: 'Teacher not authorized for this class' });
     }
 
-    // Validate academic year and term
     const academicYear = await mongoose.model('AcademicYear').findById(classLevel.academicYear);
     if (!academicYear) {
-      return responseStatus(res, 400, 'failed', 'Invalid academic year');
+      return res.status(400).json({ status: 'failed', message: 'Invalid academic year' });
     }
     if (academicYear.name !== session) {
-      return responseStatus(res, 400, 'failed', 'Session does not match current academic year');
+      return res.status(400).json({ status: 'failed', message: 'Session does not match current academic year' });
     }
     const validTerms = ['1st Term', '2nd Term', '3rd Term'];
     if (!validTerms.includes(term)) {
-      return responseStatus(res, 400, 'failed', 'Invalid term');
+      return res.status(400).json({ status: 'failed', message: 'Invalid term' });
     }
 
-    // Validate subclass
     if (subclass && !classLevel.subclasses.some((sub) => sub.letter === subclass)) {
-      return responseStatus(res, 400, 'failed', `Invalid subclass: ${subclass}`);
+      return res.status(400).json({ status: 'failed', message: `Invalid subclass: ${subclass}` });
     }
 
-    // Check for duplicate assignment ID
     const existingAssignment = await Assignment.findOne({ id });
     if (existingAssignment) {
-      return responseStatus(res, 409, 'failed', `Assignment ID ${id} already exists`);
+      return res.status(409).json({ status: 'failed', message: `Assignment ID ${id} already exists` });
     }
 
-    // Validate due date
     const parsedDueDate = new Date(dueDate);
     if (isNaN(parsedDueDate) || parsedDueDate <= new Date()) {
-      return responseStatus(res, 400, 'failed', 'Invalid or past due date');
+      return res.status(400).json({ status: 'failed', message: 'Invalid or past due date' });
     }
 
-    // Create and save assignment
     const assignment = new Assignment({
       id,
       session,
@@ -83,35 +71,30 @@ exports.createAssignmentService = async (data, res) => {
     });
 
     await assignment.save();
-    return responseStatus(res, 201, 'success', assignment);
+    return res.status(201).json({ status: 'success', message: 'Assignment created successfully', data: assignment });
   } catch (error) {
     console.error('Create Assignment Error:', error.message, error.stack);
-    return responseStatus(res, 500, 'error', error.message);
+    return res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-/**
- * Get assignments for a student's class.
- * @param {string} studentId - Student ID.
- * @param {Object} res - Response object.
- */
 exports.getAssignmentsForStudentService = async (studentId, res) => {
   try {
     if (!mongoose.isValidObjectId(studentId)) {
-      return responseStatus(res, 400, 'failed', `Invalid student ID: ${studentId}`);
+      return res.status(400).json({ status: 'failed', message: `Invalid student ID: ${studentId}` });
     }
 
     const student = await Student.findById(studentId).select('classLevelId currentClassLevel.subclass firstName lastName');
     if (!student) {
-      return responseStatus(res, 404, 'failed', 'Student not found');
+      return res.status(404).json({ status: 'failed', message: 'Student not found' });
     }
     if (!student.classLevelId) {
-      return responseStatus(res, 404, 'failed', 'Student not assigned to a class');
+      return res.status(404).json({ status: 'failed', message: 'Student not assigned to a class' });
     }
 
     const classLevel = await ClassLevel.findById(student.classLevelId);
     if (!classLevel) {
-      return responseStatus(res, 404, 'failed', 'Class not found');
+      return res.status(404).json({ status: 'failed', message: 'Class not found' });
     }
 
     const filter = { classLevelId: student.classLevelId };
@@ -125,7 +108,7 @@ exports.getAssignmentsForStudentService = async (studentId, res) => {
       .lean();
 
     if (!assignments.length) {
-      return responseStatus(res, 404, 'failed', 'No assignments found for this class');
+      return res.status(404).json({ status: 'failed', message: 'No assignments found for this class' });
     }
 
     const currentDate = new Date();
@@ -141,117 +124,140 @@ exports.getAssignmentsForStudentService = async (studentId, res) => {
               ...studentSubmission,
               viewed: studentSubmission.viewed,
               viewedAt: studentSubmission.viewedAt,
+              deletionScheduledAt: studentSubmission.deletionScheduledAt,
             }
           : null,
       };
     });
 
-    return responseStatus(res, 200, 'success', transformedAssignments);
+    return res.status(200).json({ status: 'success', data: transformedAssignments });
   } catch (error) {
     console.error('Get Assignments Error:', error.message, error.stack);
-    return responseStatus(res, 500, 'error', error.message);
+    return res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-/**
- * Submit an assignment by a student.
- * @param {Object} data - Submission data.
- * @param {Object} file - Uploaded file.
- * @param {Object} res - Response object.
- */
-exports.submitAssignmentService = async (data, file, res) => {
-  const { assignmentId, studentId } = data;
-
+exports.submitAssignmentService = async (req, res) => {
   try {
-    if (!assignmentId || !mongoose.isValidObjectId(studentId)) {
-      return responseStatus(res, 400, 'failed', 'Invalid assignment or student ID');
+    if (!req.body) {
+      console.error('req.body is undefined');
+      return res.status(400).json({ status: 'failed', message: 'Request body is missing' });
     }
 
-    const assignment = await Assignment.findOne({ id: assignmentId });
+    const { assignmentId, studentId } = req.body;
+    const file = req.file;
+
+    console.log('Submit Assignment Service - Request body:', req.body);
+    console.log('Submit Assignment Service - Request file:', req.file);
+
+    if (!assignmentId || !studentId || !file) {
+      return res.status(400).json({
+        status: 'failed',
+        message: 'Missing required fields: assignmentId, studentId, or file',
+      });
+    }
+
+    if (!mongoose.isValidObjectId(studentId)) {
+      return res.status(400).json({ status: 'failed', message: 'Invalid student ID' });
+    }
+
+    const assignment = await Assignment.findOne({ id: assignmentId })
+      .populate('submissions.studentId', 'firstName lastName')
+      .populate('classLevelId', 'name section');
     if (!assignment) {
-      return responseStatus(res, 404, 'failed', 'Assignment not found');
+      return res.status(404).json({ status: 'failed', message: 'Assignment not found' });
     }
 
-    const student = await Student.findById(studentId).select('firstName lastName classLevelId');
+    if (!assignment.teacherId) {
+      return res.status(400).json({ status: 'failed', message: 'Assignment is missing teacherId' });
+    }
+
+    if (new Date() > new Date(assignment.dueDate)) {
+      return res.status(400).json({ status: 'failed', message: 'Submission deadline has passed' });
+    }
+
+    const student = await Student.findById(studentId);
     if (!student) {
-      return responseStatus(res, 404, 'failed', 'Student not found');
-    }
-    if (student.classLevelId.toString() !== assignment.classLevelId.toString()) {
-      return responseStatus(res, 403, 'failed', 'Student not enrolled in this class');
+      return res.status(404).json({ status: 'failed', message: 'Student not found' });
     }
 
-    const currentDate = new Date();
-    if (currentDate > new Date(assignment.dueDate)) {
-      return responseStatus(res, 400, 'failed', 'Submission deadline passed');
-    }
-
-    let cloudinaryLink = file ? file.path : null;
-    if (!file && !assignment.submissions.some((sub) => sub.studentId.toString() === studentId)) {
-      return responseStatus(res, 400, 'failed', 'File required for new submission');
-    }
+    const cloudinaryLink = req.file.path; // Assumes fileUpload middleware sets path to Cloudinary URL
+    const existingSubmission = assignment.submissions.find(
+      (sub) => sub.studentId._id.toString() === studentId
+    );
 
     const submission = {
-      studentId,
+      studentId: student._id,
       name: `${student.firstName} ${student.lastName}`,
       cloudinaryLink,
-      submissionDate: currentDate,
-      comments: [],
+      submissionDate: new Date(),
+      comments: existingSubmission ? existingSubmission.comments : [],
       submitted: true,
       viewed: false,
       viewedAt: null,
+      deletionScheduledAt: null,
     };
 
-    const existingSubmissionIndex = assignment.submissions.findIndex(
-      (sub) => sub.studentId.toString() === studentId
-    );
+    const update = existingSubmission
+      ? {
+          $set: {
+            'submissions.$[sub]': submission,
+          },
+        }
+      : {
+          $push: { submissions: submission },
+        };
 
-    if (existingSubmissionIndex !== -1) {
-      if (file && assignment.submissions[existingSubmissionIndex].cloudinaryLink) {
-        await deleteFromCloudinary(assignment.submissions[existingSubmissionIndex].cloudinaryLink);
-      }
-      assignment.submissions[existingSubmissionIndex] = {
-        ...assignment.submissions[existingSubmissionIndex],
-        ...submission,
-        cloudinaryLink: cloudinaryLink || assignment.submissions[existingSubmissionIndex].cloudinaryLink,
-        comments: assignment.submissions[existingSubmissionIndex].comments,
-      };
-    } else {
-      assignment.submissions.push(submission);
+    const options = {
+      arrayFilters: existingSubmission ? [{ 'sub.studentId': student._id }] : undefined,
+      new: true,
+      runValidators: true,
+      select: '-__v',
+    };
+
+    const updatedAssignment = await Assignment.findOneAndUpdate(
+      { id: assignmentId },
+      update,
+      options
+    )
+      .populate('submissions.studentId', 'firstName lastName')
+      .populate('classLevelId', 'name section')
+      .lean();
+
+    if (!updatedAssignment) {
+      return res.status(404).json({ status: 'failed', message: 'Failed to update assignment' });
     }
 
-    await assignment.save();
-    const populatedAssignment = await Assignment.findOne({ id: assignmentId }).populate(
-      'submissions.studentId',
-      'firstName lastName'
-    );
+    updatedAssignment.studentSubmission = updatedAssignment.submissions.find(
+      (sub) => sub.studentId._id.toString() === studentId
+    ) || null;
+    updatedAssignment.canSubmit = new Date() <= new Date(updatedAssignment.dueDate);
 
-    return responseStatus(res, 200, 'success', populatedAssignment);
+    return res.status(200).json({
+      status: 'success',
+      message: existingSubmission ? 'Assignment resubmitted successfully' : 'Assignment submitted successfully',
+      data: updatedAssignment,
+    });
   } catch (error) {
-    console.error('Submit Assignment Error:', error.message, error.stack);
-    return responseStatus(res, 500, 'error', error.message);
+    console.error('Submit Assignment Service Error:', error.message, error.stack);
+    return res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-/**
- * Get all assignments for a teacher's classes, with or without submissions.
- * @param {string} teacherId - Teacher ID.
- * @param {Object} query - Query parameters.
- * @param {Object} res - Response object.
- */
 exports.getAssignmentsForTeacherService = async (teacherId, query, res) => {
   try {
     if (!mongoose.isValidObjectId(teacherId)) {
-      return responseStatus(res, 400, 'failed', 'Invalid teacher ID');
+      return res.status(400).json({ status: 'failed', message: 'Invalid teacher ID' });
     }
 
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
-      return responseStatus(res, 404, 'failed', 'Teacher not found');
+      return res.status(404).json({ status: 'failed', message: 'Teacher not found' });
     }
 
     const classLevelIds = await ClassLevel.find({ 'teachers.teacherId': new mongoose.Types.ObjectId(teacherId) }).select('_id');
     if (!classLevelIds.length) {
-      return responseStatus(res, 404, 'failed', 'No classes assigned to teacher');
+      return res.status(404).json({ status: 'failed', message: 'No classes assigned to teacher' });
     }
 
     const filter = {
@@ -260,7 +266,7 @@ exports.getAssignmentsForTeacherService = async (teacherId, query, res) => {
     };
     if (query.classLevelId && mongoose.isValidObjectId(query.classLevelId)) {
       if (!classLevelIds.some((c) => c._id.toString() === query.classLevelId)) {
-        return responseStatus(res, 403, 'failed', 'Teacher not enrolled in this class');
+        return res.status(403).json({ status: 'failed', message: 'Teacher not enrolled in this class' });
       }
       filter.classLevelId = new mongoose.Types.ObjectId(query.classLevelId);
     }
@@ -273,7 +279,7 @@ exports.getAssignmentsForTeacherService = async (teacherId, query, res) => {
     const skip = (page - 1) * limit;
 
     const assignments = await Assignment.find(filter)
-      .populate('submissions.studentId', 'firstName lastName studentId')
+      .populate('submissions.studentId', 'firstName lastName')
       .populate('classLevelId', 'name section')
       .skip(skip)
       .limit(limit)
@@ -290,38 +296,37 @@ exports.getAssignmentsForTeacherService = async (teacherId, query, res) => {
         student: sub.studentId,
         viewed: sub.viewed,
         viewedAt: sub.viewedAt,
+        deletionScheduledAt: sub.deletionScheduledAt,
       })),
     }));
 
-    return responseStatus(res, 200, 'success', {
-      total,
-      page,
-      limit,
-      totalPages: Math.ceil(total / limit),
-      data: transformedAssignments,
+    return res.status(200).json({
+      status: 'success',
+      data: {
+        total,
+        page,
+        limit,
+        totalPages: Math.ceil(total / limit),
+        data: transformedAssignments,
+      },
     });
   } catch (error) {
     console.error('Get Assignments Error:', error.message, error.stack);
-    return responseStatus(res, 500, 'error', error.message);
+    return res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-/**
- * Add comments to a student's submission.
- * @param {Object} data - Comment data.
- * @param {Object} res - Response object.
- */
 exports.addAssignmentCommentService = async (data, res) => {
   const { assignmentId, studentId, comments, teacherId } = data;
 
   try {
     if (!assignmentId || !mongoose.isValidObjectId(studentId) || !mongoose.isValidObjectId(teacherId) || !Array.isArray(comments)) {
-      return responseStatus(res, 400, 'failed', 'Invalid input data');
+      return res.status(400).json({ status: 'failed', message: 'Invalid input data' });
     }
 
     const assignment = await Assignment.findOne({ id: assignmentId });
     if (!assignment) {
-      return responseStatus(res, 404, 'failed', 'Assignment not found');
+      return res.status(404).json({ status: 'failed', message: 'Assignment not found' });
     }
 
     const classLevel = await ClassLevel.findOne({
@@ -329,50 +334,49 @@ exports.addAssignmentCommentService = async (data, res) => {
       'teachers.teacherId': teacherId,
     });
     if (!classLevel) {
-      return responseStatus(res, 403, 'failed', 'Teacher not authorized');
+      return res.status(403).json({ status: 'failed', message: 'Teacher not authorized' });
     }
 
     const submissionIndex = assignment.submissions.findIndex(
       (sub) => sub.studentId.toString() === studentId
     );
     if (submissionIndex === -1 || !assignment.submissions[submissionIndex].submitted) {
-      return responseStatus(res, 404, 'failed', 'No submission found');
+      return res.status(404).json({ status: 'failed', message: 'No submission found' });
     }
 
     assignment.submissions[submissionIndex].comments = comments;
     assignment.submissions[submissionIndex].viewed = true;
     assignment.submissions[submissionIndex].viewedAt = new Date();
+    assignment.submissions[submissionIndex].deletionScheduledAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
 
     await assignment.save();
 
-    const populatedAssignment = await Assignment.findOne({ id: assignmentId }).populate(
-      'submissions.studentId',
-      'firstName lastName'
-    );
+    const populatedAssignment = await Assignment.findOne({ id: assignmentId })
+      .populate('submissions.studentId', 'firstName lastName')
+      .lean();
 
-    return responseStatus(res, 200, 'success', populatedAssignment);
+    return res.status(200).json({
+      status: 'success',
+      message: 'Comment added successfully',
+      data: populatedAssignment,
+    });
   } catch (error) {
     console.error('Add Comment Error:', error.message, error.stack);
-    return responseStatus(res, 500, 'error', error.message);
+    return res.status(500).json({ status: 'error', message: error.message });
   }
 };
 
-/**
- * Mark a student's submission as viewed by a teacher.
- * @param {Object} data - Data containing assignmentId, studentId, and teacherId.
- * @param {Object} res - Response object.
- */
 exports.markSubmissionAsViewedService = async (data, res) => {
   const { assignmentId, studentId, teacherId } = data;
 
   try {
     if (!assignmentId || !mongoose.isValidObjectId(studentId) || !mongoose.isValidObjectId(teacherId)) {
-      return responseStatus(res, 400, 'failed', 'Invalid input data');
+      return res.status(400).json({ status: 'failed', message: 'Invalid input data' });
     }
 
     const assignment = await Assignment.findOne({ id: assignmentId });
     if (!assignment) {
-      return responseStatus(res, 404, 'failed', 'Assignment not found');
+      return res.status(404).json({ status: 'failed', message: 'Assignment not found' });
     }
 
     const classLevel = await ClassLevel.findOne({
@@ -380,29 +384,37 @@ exports.markSubmissionAsViewedService = async (data, res) => {
       'teachers.teacherId': teacherId,
     });
     if (!classLevel) {
-      return responseStatus(res, 403, 'failed', 'Teacher not authorized');
+      return res.status(403).json({ status: 'failed', message: 'Teacher not authorized' });
     }
 
     const submissionIndex = assignment.submissions.findIndex(
       (sub) => sub.studentId.toString() === studentId
     );
     if (submissionIndex === -1 || !assignment.submissions[submissionIndex].submitted) {
-      return responseStatus(res, 404, 'failed', 'No submission found');
+      return res.status(404).json({ status: 'failed', message: 'No submission found' });
+    }
+
+    if (assignment.submissions[submissionIndex].viewed) {
+      return res.status(400).json({ status: 'failed', message: 'Submission already marked as viewed' });
     }
 
     assignment.submissions[submissionIndex].viewed = true;
     assignment.submissions[submissionIndex].viewedAt = new Date();
+    assignment.submissions[submissionIndex].deletionScheduledAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
 
     await assignment.save();
 
-    const populatedAssignment = await Assignment.findOne({ id: assignmentId }).populate(
-      'submissions.studentId',
-      'firstName lastName'
-    );
+    const populatedAssignment = await Assignment.findOne({ id: assignmentId })
+      .populate('submissions.studentId', 'firstName lastName')
+      .lean();
 
-    return responseStatus(res, 200, 'success', populatedAssignment);
+    return res.status(200).json({
+      status: 'success',
+      message: 'Submission marked as viewed',
+      data: populatedAssignment,
+    });
   } catch (error) {
     console.error('Mark Submission Viewed Error:', error.message, error.stack);
-    return responseStatus(res, 500, 'error', error.message);
+    return res.status(500).json({ status: 'error', message: error.message });
   }
 };

@@ -6,26 +6,8 @@ const AcademicTerm = require('../../models/Academic/academicTerm.model');
 const ClassLevel = require('../../models/Academic/class.model');
 const StudentPayment = require('../../models/Academic/schoolFees.model');
 const ExamResult = require('../../models/Academic/exams.model');
-const Subject = require('../../models/Academic/subject.model');
-const Assignment = require('../../models/Academic/assignment.model'); // Correct import
-
-// Placeholder for Attendance model (check if defined elsewhere)
-const Attendance = mongoose.models.Attendance || mongoose.model('Attendance', new mongoose.Schema({
-  student: { type: ObjectId, ref: 'Student', required: true },
-  timetable: { type: ObjectId, ref: 'Timetable', required: true },
-  academicTerm: { type: ObjectId, ref: 'AcademicTerm', required: true },
-  present: { type: Boolean, required: true },
-  date: { type: Date, required: true },
-}), 'attendances');
-
-// Placeholder for Resource model (check if defined elsewhere)
-const Resource = mongoose.models.Resource || mongoose.model('Resource', new mongoose.Schema({
-  title: { type: String, required: true },
-  url: { type: String, required: true },
-  subject: { type: ObjectId, ref: 'Subject' },
-  classLevel: { type: ObjectId, ref: 'ClassLevel' },
-  academicYear: { type: ObjectId, ref: 'AcademicYear', required: true },
-}), 'resources');
+const Subject = require('../../models/Academic/subjectName.model');
+const Timetable = require('../../models/Academic/timeTable.model');
 
 const getStudentDashboardData = async (studentId) => {
   try {
@@ -55,21 +37,38 @@ const getStudentDashboardData = async (studentId) => {
     }
 
     // Calculate session progress
-    const today = new Date();
+    const today = new Date('2025-07-23T14:39:00+01:00'); // Fixed to 02:39 PM WAT, July 23, 2025
     const yearStart = new Date(academicYear.fromYear);
     const yearEnd = new Date(academicYear.toYear);
     const totalDays = (yearEnd - yearStart) / (1000 * 60 * 60 * 24);
     const daysPassed = (today - yearStart) / (1000 * 60 * 60 * 24);
-    const sessionProgress = totalDays > 0 ? Math.min(Math.round((daysPassed / totalDays) * 100), 100) : 0;
+    const sessionProgress = totalDays > 0 && daysPassed >= 0 ? Math.min(Math.round((daysPassed / totalDays) * 100), 100) : 0;
 
-    // Calculate term attendance
-    const attendanceRecords = await Attendance.find({
-      student: studentId,
-      academicTerm: academicTerm._id,
-      date: { $gte: currentTerm.startDate, $lte: currentTerm.endDate },
+    // Calculate term attendance using Timetable.periodAttendance
+    const timetableRecords = await Timetable.find({
+      classLevel: student.classLevelId,
+      subclassLetter: student.currentClassLevel.subclass,
+      academicYear: academicYear._id,
+      'periodAttendance.attendance.date': { $gte: currentTerm.startDate, $lte: currentTerm.endDate },
     });
-    const totalClasses = attendanceRecords.length;
-    const attendedClasses = attendanceRecords.filter((record) => record.present).length;
+
+    const totalClasses = timetableRecords.reduce(
+      (sum, tt) => sum + tt.periodAttendance.reduce((acc, period) => acc + period.attendance.length, 0),
+      0
+    );
+    const attendedClasses = timetableRecords.reduce(
+      (sum, tt) =>
+        sum +
+        tt.periodAttendance.reduce(
+          (acc, period) =>
+            acc +
+            period.attendance.filter(
+              (att) => att.studentId.toString() === studentId.toString() && att.status === 'Present'
+            ).length,
+          0
+        ),
+      0
+    );
     const termAttendance = totalClasses > 0 ? Math.round((attendedClasses / totalClasses) * 100) : 0;
 
     // Fetch fee status
@@ -90,148 +89,162 @@ const getStudentDashboardData = async (studentId) => {
       };
     }
 
+    // Define subjectPerformance, allResources, assignments to prevent ReferenceError
+    const subjectPerformance = [];
+    const allResources = [];
+    const assignments = [];
+
     // Fetch next class
-    const classLevel = await ClassLevel.findById(student.currentClassLevel.classLevelId);
     let nextClass = null;
+    const classLevel = await ClassLevel.findById(student.classLevelId);
+    
     if (classLevel) {
-      const subclass = classLevel.subclasses.find((sc) => sc.letter === student.currentClassLevel.subclass);
-      if (subclass && subclass.timetables.length > 0) {
-        const now = new Date();
-        const currentDay = now.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' });
-        const currentTime = now.toTimeString().slice(0, 5); // HH:mm in WAT
-        const timetable = subclass.timetables
-          .map((tt) => ({
-            ...tt,
-            nextDate: getNextOccurrence(tt.dayOfWeek, tt.startTime, now),
-          }))
-          .filter((tt) => tt.nextDate > now)
-          .sort((a, b) => a.nextDate - b.nextDate)[0];
-        if (timetable) {
-          const subject = await Subject.findById(timetable.subject);
+      const now = new Date('2025-07-23T14:39:00+01:00'); // 02:39 PM WAT, July 23, 2025
+      const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+      const currentDayIndex = daysOfWeek.indexOf(now.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' }));
+      const timetables = await Timetable.find({
+        classLevel: student.classLevelId,
+        subclassLetter: student.currentClassLevel.subclass,
+        academicYear: academicYear._id,
+        dayOfWeek: { $in: daysOfWeek },
+      }).populate('subject');
+
+      if (timetables.length > 0) {
+        const timetable = await Promise.all(timetables.map(async (tt) => {
+          let subjectName = tt.subject?.name || 'Unknown';
+          if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
+            const subjectDoc = await Subject.findById(tt.subject.name);
+            subjectName = subjectDoc?.name || 'Unknown';
+          }
+          const nextDate = getNextOccurrence(tt.dayOfWeek, tt.startTime, now);
+          return {
+            subject: subjectName,
+            startTime: tt.startTime,
+            location: tt.location,
+            dayOfWeek: tt.dayOfWeek,
+            nextDate,
+          };
+        }));
+        const upcomingClasses = timetable
+          .filter((tt) => {
+            const isSameDay = daysOfWeek.indexOf(tt.dayOfWeek) === currentDayIndex;
+            return isSameDay ? tt.startTime > now.toTimeString().slice(0, 5) : tt.nextDate > now;
+          })
+          .sort((a, b) => a.nextDate - b.nextDate);
+        if (upcomingClasses.length > 0) {
           nextClass = {
-            subject: subject?.name || 'Unknown',
-            date: timetable.nextDate.toISOString().split('T')[0],
-            time: timetable.startTime,
-            location: timetable.location,
+            subject: upcomingClasses[0].subject,
+            date: upcomingClasses[0].nextDate.toISOString().split('T')[0],
+            time: upcomingClasses[0].startTime,
+            location: upcomingClasses[0].location,
           };
         }
       }
     }
 
     // Fetch missed classes
-    const missedClasses = await Attendance.find({
-      student: studentId,
-      academicTerm: academicTerm._id,
-      present: false,
-      date: { $gte: currentTerm.startDate, $lte: today },
-    })
-      .populate({
-        path: 'timetable',
-        populate: { path: 'subject' },
-      })
-      .then((attendances) =>
-        attendances
-          .filter((att) => att.timetable && att.timetable.subject)
-          .map((att) => ({
-            id: att.timetable._id.toString(),
-            subject: att.timetable.subject.name,
-            date: att.date.toISOString().split('T')[0],
-            time: att.timetable.startTime,
-            location: att.timetable.location,
-          }))
-      );
-
-    // Fetch subject performance
-    const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-    const examResults = await ExamResult.find({
-      student: studentId,
-      academicTerm: academicTerm._id,
-      isPublished: true,
-    }).populate('subject');
-    const subjectPerformance = [];
-    const subjects = [...new Set(examResults.map((er) => er.subject._id.toString()))];
-    subjects.forEach((subjectId, index) => {
-      const subject = examResults.find((er) => er.subject._id.toString() === subjectId)?.subject;
-      if (!subject) return;
-      const scores = examResults
-        .filter((er) => er.subject._id.toString() === subjectId)
-        .reduce((acc, er) => {
-          const monthIndex = new Date(er.createdAt).getMonth();
-          if (monthIndex >= 0 && monthIndex <= new Date().getMonth()) {
-            acc[monthIndex] = acc[monthIndex] || { total: 0, count: 0 };
-            acc[monthIndex].total += er.score;
-            acc[monthIndex].count += 1;
+    const missedClasses = [];
+    if (classLevel) {
+      const weekStart = new Date('2025-07-21T00:00:00+01:00'); // Monday, July 21, 2025
+      const timetables = await Timetable.find({
+        classLevel: student.currentClassLevel.classLevelId,
+        subclassLetter: student.currentClassLevel.subclass,
+        academicYear: academicYear._id,
+        dayOfWeek: { $in: ['Monday', 'Tuesday', 'Wednesday'] }, // Up to today (Wednesday)
+      }).populate('subject');
+      console.log('Missed classes timetables:', JSON.stringify(timetables, null, 2)); // Debug log
+      for (const tt of timetables) {
+        const classDate = getNextOccurrence(tt.dayOfWeek, tt.startTime, weekStart);
+        if (classDate < today) {
+          let subjectName = tt.subject?.name || 'Unknown';
+          if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
+            const subjectDoc = await Subject.findById(tt.subject.name);
+            subjectName = subjectDoc?.name || 'Unknown';
           }
-          return acc;
-        }, {});
-      const data = months.map((month, i) => ({
-        x: month,
-        y: scores[i] ? Math.round(scores[i].total / scores[i].count) : 0,
-      }));
-      subjectPerformance.push({
-        id: subject.name,
-        color: ['#1e88e5', '#43a047', '#d81b60', '#8e24aa', '#ff8f00'][index % 5],
-        data,
-      });
-    });
-
-    // Fetch resources
-    const allResources = await Resource.find({
-      classLevel: student.currentClassLevel.classLevelId,
-      academicYear: academicYear._id,
-    }).select('title url');
-
-    // Fetch assignments
-    const assignments = await Assignment.find({
-      classId: student.currentClassLevel.classLevelId, // Adjusted to match schema
-      term: currentTerm.name, // Adjusted to match schema
-    }).select('id title dueDate description submissions');
+          const classEnd = new Date(classDate);
+          const [endHours, endMinutes] = tt.endTime.split(':').map(Number);
+          classEnd.setHours(endHours, endMinutes, 0, 0);
+          for (const period of tt.periodAttendance) {
+            const attendance = period.attendance.find(
+              (att) => att.studentId.toString() === studentId.toString()
+            );
+            if (!attendance || attendance.status !== 'Present') {
+              missedClasses.push({
+                id: tt._id.toString(),
+                subject: subjectName,
+                date: classDate.toISOString().split('T')[0],
+                time: tt.startTime,
+                location: tt.location,
+              });
+            }
+          }
+        }
+      }
+    }
 
     // Fetch timetable with attendance
-    const timetable = await Attendance.find({
-      student: studentId,
-      academicTerm: academicTerm._id,
-      date: { $gte: currentTerm.startDate, $lte: today },
-    })
-      .populate({
-        path: 'timetable',
-        populate: { path: 'subject' },
-      })
-      .then((attendances) =>
-        attendances
-          .filter((att) => att.timetable && att.timetable.subject)
-          .map((att) => ({
-            date: att.date.toISOString().split('T')[0],
-            done: true, // Past classes are done
-            attendance: att.present ? [studentId] : [],
-          }))
-      );
+    const timetable = [];
+    if (classLevel) {
+      const weekStart = new Date('2025-07-21T00:00:00+01:00'); // Monday, July 21, 2025
+      const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
+      const timetables = await Timetable.find({
+        classLevel: student.currentClassLevel.classLevelId,
+        subclassLetter: student.currentClassLevel.subclass,
+        academicYear: academicYear._id,
+        dayOfWeek: { $in: daysOfWeek },
+      }).populate('subject');
+      for (const tt of timetables) {
+        const dayIndex = daysOfWeek.indexOf(tt.dayOfWeek);
+        if (dayIndex === -1) continue;
+        const classDate = new Date(weekStart);
+        classDate.setDate(weekStart.getDate() + dayIndex);
+        const classEnd = new Date(classDate);
+        const [endHours, endMinutes] = tt.endTime.split(':').map(Number);
+        classEnd.setHours(endHours, endMinutes, 0, 0);
+        let subjectName = tt.subject?.name || 'Unknown';
+        if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
+          const subjectDoc = await Subject.findById(tt.subject.name);
+          subjectName = subjectDoc?.name || 'Unknown';
+        }
+        const attendance = tt.periodAttendance
+          .flatMap((period) =>
+            period.attendance
+              .filter((att) => att.studentId.toString() === studentId.toString() && att.status === 'Present')
+              .map(() => studentId.toString())
+          );
+        timetable.push({
+          date: classDate.toISOString().split('T')[0],
+          done: classEnd < today,
+          attendance,
+        });
+      }
+      timetable.sort((a, b) => new Date(a.date) - new Date(b.date));
+    }
 
     return {
-      currentAcademicYear: {
-        _id: academicYear._id,
-        name: academicYear.name,
-        fromYear: academicYear.fromYear,
-        toYear: academicYear.toYear,
-        isCurrent: academicYear.isCurrent,
-      },
-      sessionProgress,
-      termAttendance,
-      feeStatus,
-      nextClass,
-      missedClasses,
-      subjectPerformance: subjectPerformance.length > 0 ? subjectPerformance : null,
-      allResources,
-      assignments,
-      timetable,
+        currentAcademicYear: {
+          _id: academicYear._id,
+          name: academicYear.name,
+          fromYear: academicYear.fromYear,
+          toYear: academicYear.toYear,
+          isCurrent: academicYear.isCurrent,
+        },
+        sessionProgress,
+        termAttendance,
+        feeStatus,
+        nextClass,
+        missedClasses,
+        subjectPerformance,
+        allResources,
+        assignments,
+        timetable,
     };
   } catch (error) {
     console.error('Error in getStudentDashboardData:', error);
-    return { error: error.message || 'Failed to fetch student dashboard data' };
+    return { status: 'error', error: error.message || 'Failed to fetch student dashboard data' };
   }
 };
 
-// Helper to calculate the next occurrence of a timetable slot
 function getNextOccurrence(dayOfWeek, startTime, now) {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   const currentDayIndex = days.indexOf(now.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' }));

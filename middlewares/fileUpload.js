@@ -1,23 +1,17 @@
-// multerConfig.js
 const multer = require('multer');
 const { CloudinaryStorage } = require('multer-storage-cloudinary');
-const cloudinary = require('../config/cloudinaryConfig'); // must be the v2 instance
+const cloudinary = require('../config/cloudinaryConfig');
 const crypto = require('crypto');
 const path = require('path');
 
-/**
- * Generates a Multer instance with Cloudinary Storage to handle all file formats
- * @returns {multer} Multer instance configured with Cloudinary storage in 'crystal-land-academy' folder
- */
 function createMulter() {
   const storage = new CloudinaryStorage({
     cloudinary,
     params: async (req, file) => {
       const uniquePublicId = crypto.randomBytes(16).toString('hex');
-      const format = path.extname(file.originalname)?.slice(1) || 'png'; // remove dot
-
+      const format = path.extname(file.originalname)?.slice(1) || 'png';
       return {
-        folder: 'crystal-land-academy', // All uploads go to this folder
+        folder: 'crystal-land-academy',
         public_id: uniquePublicId,
         format,
         resource_type: 'auto',
@@ -46,11 +40,6 @@ function createMulter() {
   return multer({ storage, fileFilter });
 }
 
-/**
- * Utility to delete Cloudinary asset(s) by secure URL(s)
- * @param {string | string[]} imageUrls - One or more secure Cloudinary URLs
- * @returns {Promise<object[]>} - Cloudinary deletion results
- */
 async function deleteFromCloudinary(imageUrls) {
   if (!imageUrls) throw new Error('Image URL(s) are required');
   const urls = Array.isArray(imageUrls) ? imageUrls : [imageUrls];
@@ -58,8 +47,8 @@ async function deleteFromCloudinary(imageUrls) {
   const extractPublicId = (url) => {
     try {
       const parsed = new URL(url);
-      const parts = parsed.pathname.split('/').slice(2); // skip /vxxx/
-      return parts.join('/').replace(/\.[^/.]+$/, ''); // strip extension
+      const parts = parsed.pathname.split('/').slice(2);
+      return parts.join('/').replace(/\.[^/.]+$/, '');
     } catch (err) {
       throw new Error('Invalid Cloudinary URL');
     }
@@ -69,7 +58,7 @@ async function deleteFromCloudinary(imageUrls) {
     const publicId = extractPublicId(url);
     const result = await cloudinary.uploader.destroy(publicId, {
       invalidate: true,
-      resource_type: 'image',
+      resource_type: 'auto', // Support PDFs and other types
     });
     return { url, result };
   });

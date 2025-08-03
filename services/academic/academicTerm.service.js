@@ -1,4 +1,3 @@
-// services/academicTerm.service.js
 const AcademicTerm = require("../../models/Academic/academicTerm.model");
 const AcademicYear = require("../../models/Academic/academicYear.model");
 const Admin = require("../../models/Staff/admin.model");
@@ -11,24 +10,51 @@ const doDateRangesIntersect = (start1, end1, start2, end2) => {
 
 // Helper function to validate isCurrent term date constraints
 const validateCurrentTermDates = (startDate, endDate, termName, res) => {
-  const now = new Date();
-  const oneMonthFromNow = new Date();
+  const now = new Date(); // Use current date and time
+  const oneMonthFromNow = new Date(now);
   oneMonthFromNow.setMonth(now.getMonth() + 1);
 
   const start = new Date(startDate);
   const end = new Date(endDate);
 
-  // Check if start date is more than one month ahead
   if (start > oneMonthFromNow) {
     return responseStatus(res, 400, "failed", `Term ${termName} cannot be current: start date is more than one month in the future`);
   }
 
-  // Check if end date is in the past
   if (end < now) {
     return responseStatus(res, 400, "failed", `Term ${termName} cannot be current: end date is in the past`);
   }
 
-  return null; // Valid
+  return null;
+};
+
+// Helper function to validate if academic year is current when term is marked as current
+const validateCurrentTermAcademicYear = async (academicYearId, termName, res) => {
+  const academicYear = await AcademicYear.findById(academicYearId);
+  if (!academicYear) {
+    return responseStatus(res, 404, "failed", "Academic Year not found");
+  }
+  if (!academicYear.isCurrent) {
+    return responseStatus(res, 400, "failed", `Term ${termName} cannot be set as current: the associated academic year is not the current academic year`);
+  }
+  return null;
+};
+
+// Helper function to validate term dates against academic year
+const validateTermDatesAgainstYear = async (terms, academicYearId, res) => {
+  const academicYear = await AcademicYear.findById(academicYearId);
+  if (!academicYear) {
+    return responseStatus(res, 404, "failed", "Academic Year not found");
+  }
+
+  const yearEndDate = new Date(academicYear.toYear); // Use toYear for end date
+  for (const term of terms) {
+    const termEndDate = new Date(term.endDate);
+    if (termEndDate > yearEndDate) {
+      return responseStatus(res, 400, "failed", `Term ${term.name} end date (${termEndDate.toISOString().split('T')[0]}) exceeds academic year end date (${yearEndDate.toISOString().split('T')[0]})`);
+    }
+  }
+  return null;
 };
 
 /**
@@ -37,11 +63,9 @@ const validateCurrentTermDates = (startDate, endDate, termName, res) => {
 exports.createAcademicTermService = async (data, userId, res) => {
   const { terms, academicYearId } = data;
 
-  // Validate academicYearId
-  const academicYear = await AcademicYear.findById(academicYearId);
-  if (!academicYear) {
-    return responseStatus(res, 404, "failed", "Academic Year not found");
-  }
+  // Validate academicYearId and term dates against academic year
+  const yearValidationError = await validateTermDatesAgainstYear(terms, academicYearId, res);
+  if (yearValidationError) return yearValidationError;
 
   // Validate terms array
   if (!terms || terms.length !== 3 || !terms.every((term) => ["1st Term", "2nd Term", "3rd Term"].includes(term.name))) {
@@ -57,8 +81,13 @@ exports.createAcademicTermService = async (data, userId, res) => {
       return responseStatus(res, 400, "failed", `Term ${term.name} start date must be before end date`);
     }
     if (term.isCurrent) {
-      const validationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
-      if (validationError) return validationError;
+      // Validate current term dates
+      const dateValidationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
+      if (dateValidationError) return dateValidationError;
+
+      // Validate if academic year is current
+      const yearValidationError = await validateCurrentTermAcademicYear(academicYearId, term.name, res);
+      if (yearValidationError) return yearValidationError;
     }
   }
 
@@ -126,7 +155,6 @@ exports.createAcademicTermService = async (data, userId, res) => {
     })),
   });
 
-  // The pre-save hook in AcademicTerm schema adds the term to AcademicYear.academicTerms
   return responseStatus(res, 200, "success", academicTermCreated);
 };
 
@@ -136,19 +164,16 @@ exports.createAcademicTermService = async (data, userId, res) => {
 exports.updateAcademicTermService = async (data, academicId, userId, res) => {
   const { terms, academicYearId } = data;
 
-  // Validate academicYearId if provided
-  if (academicYearId) {
-    const academicYear = await AcademicYear.findById(academicYearId);
-    if (!academicYear) {
-      return responseStatus(res, 404, "failed", "Academic Year not found");
-    }
-  }
-
-  // Check if the academic term exists
+  // Validate academicYear
   const academicTerm = await AcademicTerm.findById(academicId);
   if (!academicTerm) {
     return responseStatus(res, 404, "failed", "Academic Term not found");
   }
+
+  // Validate academicYearId if provided
+  const targetAcademicYearId = academicYearId || academicTerm.academicYear;
+  const yearValidationError = await validateTermDatesAgainstYear(terms, targetAcademicYearId, res);
+  if (yearValidationError) return yearValidationError;
 
   // Validate terms array if provided
   if (terms) {
@@ -165,8 +190,13 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
         return responseStatus(res, 400, "failed", `Term ${term.name} start date must be before end date`);
       }
       if (term.isCurrent) {
-        const validationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
-        if (validationError) return validationError;
+        // Validate current term dates
+        const dateValidationError = validateCurrentTermDates(term.startDate, term.endDate, term.name, res);
+        if (dateValidationError) return dateValidationError;
+
+        // Validate if academic year is current
+        const yearValidationError = await validateCurrentTermAcademicYear(targetAcademicYearId, term.name, res);
+        if (yearValidationError) return yearValidationError;
       }
     }
 
@@ -194,7 +224,7 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
 
     // Validate against existing terms in the same academic year (excluding current academic term)
     const existingTerms = await AcademicTerm.find({
-      academicYear: academicYearId || academicTerm.academicYear,
+      academicYear: targetAcademicYearId,
       _id: { $ne: academicId },
     });
     for (const existing of existingTerms) {
@@ -229,7 +259,7 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
     // If a term is marked as current, update other terms in the academic year to isCurrent: false
     if (currentTermCount === 1) {
       await AcademicTerm.updateMany(
-        { academicYear: academicYearId || academicTerm.academicYear, "terms.isCurrent": true },
+        { academicYear: targetAcademicYearId, "terms.isCurrent": true },
         { $set: { "terms.$[].isCurrent": false } }
       );
     }
@@ -259,18 +289,78 @@ exports.updateAcademicTermService = async (data, academicId, userId, res) => {
 };
 
 /**
- * Get all academic terms service.
+ * Get all academic terms by academic year service.
  */
-exports.getAcademicTermsService = async (res) => {
-  const academicTerms = await AcademicTerm.find().populate("academicYear");
+exports.getAcademicTermsByYearService = async (academicYearId, res) => {
+  // Validate academicYearId
+  const academicYear = await AcademicYear.findById(academicYearId);
+  if (!academicYear) {
+    return responseStatus(res, 404, "failed", "Academic Year not found");
+  }
+
+  const academicTerms = await AcademicTerm.find({ academicYear: academicYearId })
+    .populate("academicYear");
+  if (!academicTerms.length) {
+    return responseStatus(res, 404, "failed", "No academic terms found for this academic year");
+  }
+
   return responseStatus(res, 200, "success", academicTerms);
+};
+
+/**
+ * Get current academic term service.
+ */
+exports.getCurrentAcademicTermService = async (res) => {
+  // Find the current academic year
+  const academicYear = await AcademicYear.findOne({ isCurrent: true });
+  if (!academicYear) {
+    return responseStatus(res, 404, "failed", "No current academic year found");
+  }
+
+  // Find academic terms for the current academic year
+  const academicTerms = await AcademicTerm.find({ academicYear: academicYear._id });
+  if (!academicTerms.length) {
+    return responseStatus(res, 404, "failed", "No academic terms found for the current academic year");
+  }
+
+  // Find the term with isCurrent: true
+  let currentTerm = null;
+  for (const termDoc of academicTerms) {
+    const foundTerm = termDoc.terms.find((term) => term.isCurrent);
+    if (foundTerm) {
+      currentTerm = {
+        _id: termDoc._id,
+        name: foundTerm.name,
+        description: foundTerm.description,
+        duration: foundTerm.duration,
+        startDate: foundTerm.startDate,
+        endDate: foundTerm.endDate,
+        createdBy: foundTerm.createdBy,
+        isCurrent: foundTerm.isCurrent,
+        academicYear: academicYear._id,
+      };
+      break;
+    }
+  }
+
+  if (!currentTerm) {
+    return responseStatus(res, 404, "failed", "No current academic term found");
+  }
+
+  // Validate current term dates
+  const validationError = validateCurrentTermDates(currentTerm.startDate, currentTerm.endDate, currentTerm.name, res);
+  if (validationError) return validationError;
+
+  return responseStatus(res, 200, "success", currentTerm);
 };
 
 /**
  * Get academic term by ID service.
  */
 exports.getAcademicTermService = async (id, res) => {
-  const academicTerm = await AcademicTerm.findById(id).populate("academicYear createdBy");
+  const academicTerm = await AcademicTerm.findById(id)
+    .populate("academicYear")
+    .populate("createdBy");
   if (!academicTerm) {
     return responseStatus(res, 404, "failed", "Academic Term not found");
   }
@@ -303,3 +393,4 @@ exports.deleteAcademicTermService = async (id, res) => {
 
   return responseStatus(res, 200, "success", "Academic Term deleted successfully");
 };
+

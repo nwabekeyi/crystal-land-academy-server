@@ -35,6 +35,18 @@ const SubmissionSchema = new Schema({
     type: Date,
     default: null,
   },
+  deletionScheduledAt: {
+    type: Date,
+    default: null, // Optional field to schedule deletion
+  },
+  deleted: {
+    type: Boolean,
+    default: false, // Flag to indicate if the submission is deleted
+  },
+  deletedAt: {
+    type: Date,
+    default: null, // Timestamp for when the submission was deleted
+  },
 });
 
 const AssignmentSchema = new Schema(
@@ -47,7 +59,7 @@ const AssignmentSchema = new Schema(
     session: {
       type: String,
       required: true,
-    },
+    },      deletionScheduledAt: { type: Date },
     term: {
       type: String,
       required: true,

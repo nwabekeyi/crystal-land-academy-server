@@ -417,16 +417,41 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
  */
 exports.deleteClassLevelService = async (id, res) => {
   try {
+    // Validate ClassLevel ID
     if (!mongoose.isValidObjectId(id)) {
       return responseStatus(res, 400, "failed", `Invalid class ID: ${id}`);
     }
+
+    // Find the ClassLevel
     const classLevel = await ClassLevel.findById(id);
     if (!classLevel) {
       return responseStatus(res, 404, "failed", "Class not found");
     }
 
+    // Check if school fees have been paid for any student in this ClassLevel
+    const studentPayments = await mongoose.model("StudentPayment").find({
+      classLevelId: id,
+      termPayments: {
+        $elemMatch: {
+          payments: { $exists: true, $not: { $size: 0 } },
+        },
+      },
+    });
+
+    if (studentPayments.length > 0) {
+      return responseStatus(
+        res,
+        400,
+        "failed",
+        "Cannot delete class because school fees have been paid for one or more students"
+      );
+    }
+
+    // Perform cleanup in related models
+
+    // 1. Remove teaching assignments from Teachers
     if (classLevel.teachers.length > 0) {
-      await Teacher.updateMany(
+      await mongoose.model("Teacher").updateMany(
         { _id: { $in: classLevel.teachers.map((t) => t.teacherId) } },
         {
           $pull: {
@@ -439,6 +464,32 @@ exports.deleteClassLevelService = async (id, res) => {
       );
     }
 
+    // 2. Remove ClassLevel references from Subjects
+    await mongoose.model("Subject").updateMany(
+      { "classLevelSubclasses.classLevel": id },
+      {
+        $pull: {
+          classLevelSubclasses: { classLevel: id },
+        },
+      }
+    );
+
+    // 3. Delete related Curriculum entries
+    await mongoose.model("Curriculum").deleteMany({
+      classLevelId: id,
+    });
+
+    // 4. Delete related Timetable entries
+    await mongoose.model("Timetable").deleteMany({
+      classLevel: id,
+    });
+
+    // 5. Delete related StudentPayment entries
+    await mongoose.model("StudentPayment").deleteMany({
+      classLevelId: id,
+    });
+
+    // Delete the ClassLevel
     const deleted = await ClassLevel.findByIdAndDelete(id);
     if (!deleted) {
       return responseStatus(res, 404, "failed", "Class not found");

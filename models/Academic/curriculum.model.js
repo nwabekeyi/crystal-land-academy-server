@@ -12,16 +12,15 @@ const topicSchema = new mongoose.Schema({
     required: true,
     trim: true,
   },
-  duration: {
-    type: String,
-    required: true,
-    trim: true,
-  },
   resources: [{
     type: String,
     trim: true,
   }],
-});
+  isCompleted: {
+    type: Boolean,
+    default: false,
+  },
+}, { _id: true });
 
 const curriculumSchema = new mongoose.Schema({
   subjectId: {
@@ -29,40 +28,22 @@ const curriculumSchema = new mongoose.Schema({
     ref: 'Subject',
     required: true,
   },
-  academicTermId: {
-    type: mongoose.Schema.Types.ObjectId,
-    ref: 'AcademicTerm',
-    required: true,
-  },
   classLevelId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'ClassLevel',
     required: true,
   },
-  courseDuration: {
-    type: String,
-    required: true,
-    trim: true,
-  },
   topics: [topicSchema],
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Admin',
-    required: false, // Changed to optional
+    required: false,
   },
   completionRate: {
     type: Number,
     default: 0,
     min: 0,
     max: 100,
-  },
-  createdAt: {
-    type: Date,
-    default: Date.now,
-  },
-  updatedAt: {
-    type: Date,
-    default: Date.now,
   },
 }, { timestamps: true });
 

@@ -23,7 +23,6 @@ const {
   adminWithdrawTeacherController,
   adminUnsuspendTeacherController, // Added
 } = require("../../../controllers/staff/teachers.controller");
-const { adminUnsuspendStudentService } = require("../../../services/students/students.service");
 
 // Create teacher
 teachersRouter

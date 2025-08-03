@@ -1,17 +1,9 @@
-const responseStatus = (res, statusCode, status, data) => {
-  if (!res || typeof res.status !== "function") {
-    throw new Error("Invalid response object");
-  }
-  if (status === "success") {
-    return res.status(statusCode).json({
-      status: status,
-      data: data,
-    });
-  } else {
-    return res.status(statusCode).json({
-      status: status,
-      message: data,
-    });
-  }
+const responseStatus = (res, statusCode, status, dataOrMessage) => {
+  const response = {
+    status,
+    [status === 'success' ? 'data' : 'message']: dataOrMessage || 'No message provided',
+  };
+  return res.status(statusCode).json(response);
 };
+
 module.exports = responseStatus;

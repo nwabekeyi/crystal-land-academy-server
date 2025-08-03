@@ -217,14 +217,12 @@ ClassLevelSchema.pre("validate", async function (next) {
           }
         }
       }
-      for (const subclass of this.subclasses) {
-        if (subclass.subjects && subclass.subjects.length > 0) {
-          return next(new Error(`Subjects not allowed in subclasses for ${this.name}`));
-        }
-      }
+      // for (const subclass of this.subclasses) {
+      //   if (subclass.subjects && subclass.subjects.length > 0) {
+      //     return next(new Error(`Subjects not allowed in subclasses for ${this.name}`));
+      //   }
+      // }
     }
-
-   
     // Validate students
     for (const subclass of this.subclasses) {
       if (subclass.students && subclass.students.length > 0) {
@@ -272,12 +270,12 @@ ClassLevelSchema.pre("validate", async function (next) {
         return next(new Error("Invalid teacher IDs in teachers array"));
       }
       // Ensure firstName and lastName match the Teacher documents
-      for (const teacher of this.teachers) {
-        const teacherDoc = validTeachers.find(t => t._id.toString() === teacher.teacherId.toString());
-        if (!teacherDoc || teacher.firstName !== teacherDoc.firstName || teacher.lastName !== teacherDoc.lastName) {
-          return next(new Error(`Teacher data mismatch for ID ${teacher.teacherId}`));
-        }
-      }
+      // for (const teacher of this.teachers) {
+      //   const teacherDoc = validTeachers.find(t => t._id.toString() === teacher.teacherId.toString());
+      //   if (!teacherDoc || teacher.firstName !== teacherDoc.firstName || teacher.lastName !== teacherDoc.lastName) {
+      //     return next(new Error(`Teacher data mismatch for ID ${teacher.teacherId}`));
+      //   }
+      // }
     }
 
     // Validate students aggregation

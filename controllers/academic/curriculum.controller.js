@@ -1,84 +1,134 @@
 // controllers/academic/curriculum.controller.js
-const responseStatus = require("../../handlers/responseStatus.handler");
 const {
-  createCurriculumService,
+  addTopicToCurriculumService,
+  updateTopicInCurriculumService,
+  removeTopicFromCurriculumService,
+  markTopicAsCompletedService,
   getAllCurriculaService,
   getCurriculumByIdService,
   updateCurriculumService,
   deleteCurriculumService,
+  getCurriculaForTeacherService,
+  getCurriculaForStudentService,
+  createCurriculumService
 } = require("../../services/academic/curriculum.service");
+const responseStatus = require("../../handlers/responseStatus.handler");
 
-/**
- * @desc Create Curriculum
- * @route POST /api/v1/curriculum
- * @access Public
- */
 exports.createCurriculumController = async (req, res) => {
   try {
-    await createCurriculumService(req.body, res);
+    const data = {
+      subjectId: req.body.subjectId,
+      classLevelId: req.body.classLevelId,
+      topics: req.body.topics,
+    };
+    await createCurriculumService(data, res);
   } catch (error) {
-    console.error('Controller error creating curriculum:', error.stack);
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "failed", error.message);
   }
 };
-
-/**
- * @desc Get all Curricula
- * @route GET /api/v1/curriculum
- * @access Public
- */
 exports.getAllCurriculaController = async (req, res) => {
   try {
-    const result = await getAllCurriculaService(req.query);
-    responseStatus(res, 200, "success", result);
+    await getAllCurriculaService(req.query, res);
   } catch (error) {
-    console.error('Controller error fetching curricula:', error.stack);
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "failed", error.message);
   }
 };
 
-/**
- * @desc Get single Curriculum
- * @route GET /api/v1/curriculum/:id
- * @access Public
- */
 exports.getCurriculumByIdController = async (req, res) => {
   try {
-    const result = await getCurriculumByIdService(req.params.id);
-    if (!result) {
+    const curriculum = await getCurriculumByIdService(req.params.id);
+    if (!curriculum) {
       return responseStatus(res, 404, "failed", "Curriculum not found");
     }
-    responseStatus(res, 200, "success", result);
+    responseStatus(res, 200, "success", curriculum);
   } catch (error) {
-    console.error('Controller error fetching curriculum:', error.stack);
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "failed", error.message);
   }
 };
 
-/**
- * @desc Update Curriculum
- * @route PATCH /api/v1/curriculum/:id
- * @access Public
- */
 exports.updateCurriculumController = async (req, res) => {
   try {
-    await updateCurriculumService(req.body, req.params.id, res);
+    const data = {
+      subjectId: req.body.subjectId,
+      classLevelId: req.body.classLevelId,
+      topics: req.body.topics,
+    };
+    await updateCurriculumService(data, req.params.id, res);
   } catch (error) {
-    console.error('Controller error updating curriculum:', error.stack);
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "failed", error.message);
   }
 };
 
-/**
- * @desc Delete Curriculum
- * @route DELETE /api/v1/curriculum/:id
- * @access Public
- */
 exports.deleteCurriculumController = async (req, res) => {
   try {
     await deleteCurriculumService(req.params.id, res);
   } catch (error) {
-    console.error('Controller error deleting curriculum:', error.stack);
-    responseStatus(res, 400, "failed", error.message);
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+exports.addTopicToCurriculumController = async (req, res) => {
+  try {
+    const { curriculumId } = req.params;
+    const topicData = {
+      topic: req.body.topic,
+      description: req.body.description,
+      resources: req.body.resources,
+      isCompleted: req.body.isCompleted || false,
+    };
+    await addTopicToCurriculumService(curriculumId, topicData, res);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+exports.updateTopicInCurriculumController = async (req, res) => {
+  try {
+    const { curriculumId, topicId } = req.params;
+    const topicData = {
+      topic: req.body.topic,
+      description: req.body.description,
+      resources: req.body.resources,
+      isCompleted: req.body.isCompleted,
+    };
+    await updateTopicInCurriculumService(curriculumId, topicId, topicData, res);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+exports.removeTopicFromCurriculumController = async (req, res) => {
+  try {
+    const { curriculumId, topicId } = req.params;
+    await removeTopicFromCurriculumService(curriculumId, topicId, res);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+exports.markTopicAsCompletedController = async (req, res) => {
+  try {
+    const { curriculumId, topicId } = req.params;
+    await markTopicAsCompletedService(curriculumId, topicId, res);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+exports.getCurriculaForTeacherController = async (req, res) => {
+  try {
+    const { teacherId } = req.params;
+    await getCurriculaForTeacherService(teacherId, res);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+exports.getCurriculaForStudentController = async (req, res) => {
+  try {
+    const { classLevelId } = req.params;
+    await getCurriculaForStudentService(classLevelId, res);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
   }
 };
