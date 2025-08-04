@@ -7,7 +7,7 @@ const { verifyEnv } = require("../config/env.Config");
 require("../config/dbConnect");
 
 // Import the cron job
-const cronJobs = require("../cronJobs");
+const deleteOldCloudinaryFiles = require("../utils/deleteOldCloudinaruFiles");
 
 // Verify all environment variables
 verifyEnv();
@@ -32,12 +32,12 @@ routeSync(app, "staff");
 routeSync(app, "academic");
 routeSync(app, "students");
 routeSync(app, "enquiry");
-routeSync(app, "feedback")
+routeSync(app, "feedback");
 routeSync(app, "password");
 routeSync(app, "registrationCode");
 routeSync(app, "announcement");
 routeSync(app, "Event");
-routeSync(app, "Review")
+routeSync(app, "Review");
 routeSync(app, "financials");
 
 // Serve static files from the frontend build
@@ -54,6 +54,6 @@ app.all("*", (req, res) => {
 });
 
 // Start the cron job
-cronJobs();
+deleteOldCloudinaryFiles();
 
 module.exports = app;
