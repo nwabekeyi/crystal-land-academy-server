@@ -16,6 +16,12 @@ exports.createReviewService = async (data) => {
     throw new Error('Missing required fields: id, studentId, teacherId, classId, rating, academicYearId');
   }
 
+  // Check if the student has already reviewed this teacher for the current academic year
+  const existingReview = await Review.findOne({ studentId, teacherId, academicYearId }).lean();
+  if (existingReview) {
+    return ('Student already reviewed');
+  }
+
   const student = await Student.findOne({ studentId }).lean();
   if (!student) throw new Error('Invalid studentId');
 
@@ -58,10 +64,10 @@ exports.createReviewService = async (data) => {
   const review = new Review({ id, studentId, teacherId, classId, rating, reviewText, academicYearId });
   const savedReview = await review.save();
 
-  teacher.reviews.push(savedReview._id); // ✅ Correct
+  teacher.reviews.push(savedReview._id);
   await teacher.save();
 
-  // ✅ Update teacher's average rating
+  // Update teacher's average rating
   await updateTeacherAverageRating(teacherId);
 
   const className = `${student.currentClassLevel.section} ${student.currentClassLevel.className}${student.currentClassLevel.subclass}`;

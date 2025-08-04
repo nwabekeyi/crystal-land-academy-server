@@ -10,16 +10,16 @@ const attendanceSchema = new mongoose.Schema(
       enum: ['Present', 'Absent', 'Late', 'Excused'],
       required: true,
     },
-    date: { type: Date, default: Date.now },
     notes: { type: String, trim: true, maxlength: 200 },
   },
   { _id: false }
 );
 
-const periodAttendanceSchema = new mongoose.Schema(
+const periodSchema = new mongoose.Schema(
   {
-    periodIndex: { type: Number, required: true, min: 0 },
-    attendance: [attendanceSchema],
+    periodIndex: { type: Number, required: true, min: 0 }, // Period number (0-based)
+    date: { type: Date, required: true, index: true }, // Date of attendance
+    attendance: [attendanceSchema], // Attendance records for this period
   },
   { _id: false }
 );
@@ -53,9 +53,10 @@ const timetableSchema = new mongoose.Schema(
         message: '{VALUE} is not an integer',
       },
     },
-    periodAttendance: [periodAttendanceSchema],
+    periods: [periodSchema], // Array of periods with attendance
     location: { type: String, required: true },
     academicYear: { type: ObjectId, ref: 'AcademicYear', required: true, index: true },
+    teacher: { type: ObjectId, ref: 'Teacher' }, // Optional teacher reference
   },
   { timestamps: true }
 );
@@ -73,14 +74,13 @@ timetableSchema.pre('validate', function (next) {
   const endMinutes = String(endDate.getMinutes()).padStart(2, '0');
   this.endTime = `${endHours}:${endMinutes}`;
 
-  // Initialize periodAttendance if not provided
-  if (!this.periodAttendance || this.periodAttendance.length === 0) {
-    this.periodAttendance = Array.from({ length: this.numberOfPeriods }, (_, i) => ({
-      periodIndex: i,
+  // Initialize periods array if not already set
+  if (!this.periods || this.periods.length === 0) {
+    this.periods = Array.from({ length: this.numberOfPeriods }, (_, index) => ({
+      periodIndex: index,
+      date: new Date(0), // Placeholder date, will be updated when marking attendance
       attendance: [],
     }));
-  } else if (this.periodAttendance.length !== this.numberOfPeriods) {
-    return next(new Error(`periodAttendance length must match numberOfPeriods (${this.numberOfPeriods})`));
   }
 
   next();
@@ -95,20 +95,6 @@ timetableSchema.pre('validate', async function (next) {
     }
     if (!classLevel.subclasses.some((sub) => sub.letter === this.subclassLetter)) {
       return next(new Error(`Invalid subclass letter ${this.subclassLetter} for ClassLevel ${this.classLevel}`));
-    }
-    const validStudentIds = classLevel.subclasses
-      .find((sub) => sub.letter === this.subclassLetter)
-      .students.map((id) => id.toString());
-    for (const period of this.periodAttendance) {
-      if (period.attendance && period.attendance.length > 0) {
-        for (const record of period.attendance) {
-          if (!validStudentIds.includes(record.studentId.toString())) {
-            return next(
-              new Error(`Student ${record.studentId} is not in subclass ${this.subclassLetter} of ClassLevel ${this.classLevel}`)
-            );
-          }
-        }
-      }
     }
     next();
   } catch (error) {

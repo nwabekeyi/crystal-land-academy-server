@@ -36,6 +36,13 @@ exports.createReviewController = async (req, res) => {
 
     const review = await createReviewService(req.body);
 
+    if(review === 'Student already reviewed'){
+      return res.status(200).json({
+        status: 'already reviewed',
+        message: 'You already reviewed and rated this teacher',
+      });
+    }
+
     return res.status(201).json({
       status: 'success',
       message: 'Teacher review created successfully',

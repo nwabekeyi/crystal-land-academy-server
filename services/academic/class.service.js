@@ -1,16 +1,83 @@
 const mongoose = require("mongoose");
 const ClassLevel = require("../../models/Academic/class.model");
-const Teacher = require("../../models/Staff/teachers.model");
-const Subject = require("../../models/Academic/subject.model");
+const Student = require("../../models/Students/students.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
+// Existing services...
+
 /**
- * Create a new ClassLevel.
- * @param {Object} data - Class data including section, name, description, academicYear, subclasses, etc.
- * @param {string} userId - The ID of the admin creating the class.
- * @param {Object} res - The response object.
- * @returns {Object} - Response status.
+ * Get all students in a specific subclass of a class level
+ * @param {string} classLevelId - ClassLevel ID
+ * @param {string} subclassLetter - Subclass letter (e.g., "A")
+ * @param {Object} res - The response object
+ * @returns {Object} - Response with student details
  */
+exports.getStudentsInSubclassService = async (classLevelId, subclassLetter, res) => {
+  try {
+    // Validate classLevelId
+    if (!mongoose.isValidObjectId(classLevelId)) {
+      return responseStatus(res, 400, "failed", `Invalid class level ID: ${classLevelId}`);
+    }
+
+    // Validate subclassLetter
+    if (!subclassLetter.match(/^[A-Z]$/)) {
+      return responseStatus(res, 400, "failed", "Subclass letter must be a single uppercase letter (A-Z)");
+    }
+
+    // Find the ClassLevel
+    const classLevel = await ClassLevel.findById(classLevelId).select("section name subclasses");
+    if (!classLevel) {
+      return responseStatus(res, 404, "failed", "Class level not found");
+    }
+
+    // Check if the subclass exists
+    const subclass = classLevel.subclasses.find((sub) => sub.letter === subclassLetter);
+    if (!subclass) {
+      return responseStatus(res, 404, "failed", `Subclass ${subclassLetter} not found in class ${classLevel.name}`);
+    }
+
+    // Fetch students whose currentClassLevel matches the classLevelId and subclass
+    const students = await Student.find({
+      classLevelId,
+      "currentClassLevel.subclass": subclassLetter,
+    }).select(
+      "studentId firstName lastName middleName gender email guardians boardingStatus boardingDetails prefectName isGraduated isSuspended isWithdrawn profilePictureUrl" // Added profilePictureUrl
+    );
+
+    // Prepare response data
+    const responseData = {
+      classLevelId,
+      className: classLevel.name,
+      section: classLevel.section,
+      subclassLetter,
+      students: students.map((student) => ({
+        _id: student._id,
+        studentId: student.studentId,
+        firstName: student.firstName,
+        lastName: student.lastName,
+        middleName: student.middleName || "",
+        gender: student.gender,
+        email: student.email,
+        guardians: student.guardians,
+        boardingStatus: student.boardingStatus,
+        boardingDetails: student.boardingDetails || null,
+        prefectName: student.prefectName || null,
+        isGraduated: student.isGraduated,
+        isSuspended: student.isSuspended,
+        isWithdrawn: student.isWithdrawn,
+        profilePictureUrl: student.profilePictureUrl || null, // Include with fallback to null
+      })),
+    };
+
+    return responseStatus(res, 200, "success", responseData);
+  } catch (error) {
+    console.error("Get Students in Subclass Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while fetching students: ${error.message}`);
+  }
+};
+
+// Existing services...
+
 exports.createClassLevelService = async (data, userId, res) => {
   const { section, name, description, academicYear, subclasses = [], teachers = [] } = data;
   try {
@@ -43,7 +110,7 @@ exports.createClassLevelService = async (data, userId, res) => {
         }
         return t.teacherId.toString();
       });
-      const validTeachers = await Teacher.find({ _id: { $in: teacherIds } });
+      const validTeachers = await mongoose.model("Teacher").find({ _id: { $in: teacherIds } });
       if (validTeachers.length !== teacherIds.length) {
         return responseStatus(res, 400, "failed", "One or more teacher IDs are invalid");
       }
@@ -130,7 +197,7 @@ exports.createClassLevelService = async (data, userId, res) => {
     // Update teachers' teachingAssignments
     if (sanitizedTeachers.length > 0) {
       const subclassLetters = subclasses.map((sub) => sub.letter);
-      await Teacher.updateMany(
+      await mongoose.model("Teacher").updateMany(
         { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $addToSet: {
@@ -155,11 +222,7 @@ exports.createClassLevelService = async (data, userId, res) => {
   }
 };
 
-/**
- * Get all ClassLevels.
- * @param {Object} query - Query parameters for filtering and pagination.
- * @param {Object} res - The response object.
- */
+// ... (other existing services remain unchanged)
 exports.getAllClassesService = async (query, res) => {
   try {
     const { page = 1, limit = 10, section, classLevels } = query;
@@ -197,11 +260,6 @@ exports.getAllClassesService = async (query, res) => {
   }
 };
 
-/**
- * Get a single ClassLevel by ID.
- * @param {string} id - ClassLevel ID.
- * @param {Object} res - The response object.
- */
 exports.getClassLevelsService = async (id, res) => {
   try {
     if (!mongoose.isValidObjectId(id)) {
@@ -220,13 +278,6 @@ exports.getClassLevelsService = async (id, res) => {
   }
 };
 
-/**
- * Update a ClassLevel.
- * @param {Object} data - Class data to update.
- * @param {string} id - ClassLevel ID.
- * @param {string} userId - Admin ID performing the update.
- * @param {Object} res - The response object.
- */
 exports.updateClassLevelService = async (data, id, userId, res) => {
   const { section, name, description, academicYear, subclasses = [], teachers = [] } = data;
 
@@ -264,7 +315,7 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
         }
         return t.teacherId.toString();
       });
-      const validTeachers = await Teacher.find({ _id: { $in: teacherIds } });
+      const validTeachers = await mongoose.model("Teacher").find({ _id: { $in: teacherIds } });
       if (validTeachers.length !== teacherIds.length) {
         return responseStatus(res, 400, "failed", "One or more teacher IDs are invalid");
       }
@@ -368,7 +419,7 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
       .map((t) => t.teacherId.toString())
       .filter((teacherId) => !sanitizedTeachers.some((t) => t.teacherId.toString() === teacherId));
     if (removedTeachers.length > 0) {
-      await Teacher.updateMany(
+      await mongoose.model("Teacher").updateMany(
         { _id: { $in: removedTeachers } },
         {
           $pull: {
@@ -382,7 +433,7 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
     }
 
     if (sanitizedTeachers.length > 0) {
-      await Teacher.updateMany(
+      await mongoose.model("Teacher").updateMany(
         { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $pull: {
@@ -393,7 +444,7 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
           },
         }
       );
-      await Teacher.updateMany(
+      await mongoose.model("Teacher").updateMany(
         { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $addToSet: {
@@ -410,11 +461,6 @@ exports.updateClassLevelService = async (data, id, userId, res) => {
   }
 };
 
-/**
- * Delete a ClassLevel.
- * @param {string} id - ClassLevel ID.
- * @param {Object} res - The response object.
- */
 exports.deleteClassLevelService = async (id, res) => {
   try {
     // Validate ClassLevel ID
@@ -502,11 +548,6 @@ exports.deleteClassLevelService = async (id, res) => {
   }
 };
 
-/**
- * Get class data for sign-up purposes, including sections, class names, and subclass letters.
- * @param {Object} res - The response object.
- * @returns {Object} - Response with sections, class names, and subclass letters.
- */
 exports.signUpClassDataService = async (res) => {
   try {
     const classLevels = await ClassLevel.find()
@@ -548,17 +589,12 @@ exports.signUpClassDataService = async (res) => {
   }
 };
 
-/**
- * Get Class Levels and Subclasses for a Teacher
- * @param {string} teacherId - Teacher ID.
- * @param {Object} res - The response object.
- */
 exports.getClassLevelsAndSubclassesForTeacherService = async (teacherId, res) => {
   try {
     if (!mongoose.isValidObjectId(teacherId)) {
       return responseStatus(res, 400, "failed", `Invalid teacher ID: ${teacherId}`);
     }
-    const teacher = await Teacher.findById(teacherId).select("teachingAssignments");
+    const teacher = await mongoose.model("Teacher").findById(teacherId).select("teachingAssignments");
     if (!teacher) {
       return responseStatus(res, 404, "failed", "Teacher not found");
     }
@@ -569,7 +605,6 @@ exports.getClassLevelsAndSubclassesForTeacherService = async (teacherId, res) =>
 
     return responseStatus(res, 200, "success", {
       teacherId,
-      teachingAssignments: teacher.teachingAssignments,
       assignedClasses: classLevels,
     });
   } catch (error) {
@@ -578,14 +613,6 @@ exports.getClassLevelsAndSubclassesForTeacherService = async (teacherId, res) =>
   }
 };
 
-
-/**
- * Assign teachers to a ClassLevel and its subclasses.
- * @param {Object} data - Data including classId, teacherIds, and optional subclasses.
- * @param {string} userId - Admin ID performing the assignment.
- * @param {Object} res - The response object.
- * @returns {Object} - Response status.
- */
 exports.assignTeachersToClassService = async (data, userId, res) => {
   const { classId, teacherIds = [], subclasses = [] } = data;
 
@@ -612,7 +639,7 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
         }
         return t.teacherId.toString();
       });
-      const validTeachers = await Teacher.find({ _id: { $in: teacherObjectIds } });
+      const validTeachers = await mongoose.model("Teacher").find({ _id: { $in: teacherObjectIds } });
       if (validTeachers.length !== teacherObjectIds.length) {
         return responseStatus(res, 400, "failed", "One or more teacher IDs are invalid");
       }
@@ -650,7 +677,7 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
             if (!classLevel.subjects.includes(subject.subject)) {
               return responseStatus(res, 400, "failed", `Subject ID ${subject.subject} is not assigned to class ${classLevel.name}`);
             }
-            const subjectExists = await Subject.findById(subject.subject);
+            const subjectExists = await mongoose.model("Subject").findById(subject.subject);
             if (!subjectExists) {
               return responseStatus(res, 400, "failed", `Subject ID ${subject.subject} does not exist`);
             }
@@ -660,7 +687,7 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
                   return responseStatus(res, 400, "failed", `Invalid teacher ID ${teacherId} for subject ${subject.subject} in subclass ${sub.letter}`);
                 }
               }
-              const validSubjectTeachers = await Teacher.find({ _id: { $in: subject.teacherIds } });
+              const validSubjectTeachers = await mongoose.model("Teacher").find({ _id: { $in: subject.teacherIds } });
               if (validSubjectTeachers.length !== subject.teacherIds.length) {
                 return responseStatus(res, 400, "failed", `Invalid teacher IDs for subject ${subject.subject} in subclass ${sub.letter}`);
               }
@@ -710,7 +737,7 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
 
     // Update Teacher.teachingAssignments
     if (teachersToRemove.length > 0) {
-      await Teacher.updateMany(
+      await mongoose.model("Teacher").updateMany(
         { _id: { $in: teachersToRemove } },
         {
           $pull: {
@@ -724,7 +751,7 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
     }
 
     if (sanitizedTeachers.length > 0) {
-      await Teacher.updateMany(
+      await mongoose.model("Teacher").updateMany(
         { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $pull: {
@@ -735,7 +762,7 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
           },
         }
       );
-      await Teacher.updateMany(
+      await mongoose.model("Teacher").updateMany(
         { _id: { $in: sanitizedTeachers.map((t) => t.teacherId) } },
         {
           $addToSet: {
@@ -760,14 +787,6 @@ exports.assignTeachersToClassService = async (data, userId, res) => {
   }
 };
 
-/**
- * Add a subclass to an existing ClassLevel.
- * @param {Object} data - Subclass data including letter and feesPerTerm.
- * @param {string} classId - The ID of the ClassLevel to add the subclass to.
- * @param {string} userId - The ID of the admin adding the subclass.
- * @param {Object} res - The response object.
- * @returns {Object} - Response status.
- */
 exports.addSubclassToClassLevelService = async (data, classId, userId, res) => {
   const { letter, feesPerTerm = [] } = data;
 

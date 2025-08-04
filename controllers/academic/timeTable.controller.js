@@ -1,3 +1,4 @@
+// controllers/academic/timetable.controller.js
 const {
   getTimetablesService,
   getStudentTimetableService,
@@ -6,6 +7,7 @@ const {
   updateTimetableService,
   deleteTimetableService,
   markAttendanceService,
+  getAttendanceService,
 } = require('../../services/academic/timeTable.service');
 
 const getTimetablesController = async (req, res) => {
@@ -36,8 +38,15 @@ const deleteTimetableController = async (req, res) => {
 };
 
 const markAttendanceController = async (req, res) => {
-  const { timetableId, periodIndex, attendanceData } = req.body;
-  await markAttendanceService(timetableId, periodIndex, attendanceData, res);
+  const { timetableId } = req.params;
+  const { periodIndex, attendanceData, date } = req.body;
+  await markAttendanceService(timetableId, periodIndex, attendanceData, date, res);
+};
+
+const getAttendanceController = async (req, res) => {
+  const { timetableId } = req.params;
+  const { periodIndex, date } = req.query;
+  await getAttendanceService(timetableId, periodIndex, date, res);
 };
 
 module.exports = {
@@ -48,4 +57,5 @@ module.exports = {
   updateTimetableController,
   deleteTimetableController,
   markAttendanceController,
+  getAttendanceController,
 };
