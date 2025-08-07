@@ -1,126 +1,121 @@
 const {
   createSubjectService,
+  updateSubjectService,
   getAllSubjectsService,
   getSubjectsService,
-  updateSubjectService,
   deleteSubjectService,
   getSubjectsForSubclassService,
   getSubjectsForTeacherService,
+  getTeacherSubjectsByClassService,
+  getStudentsBySubjectService,
 } = require("../../services/academic/subject.service");
-const responseStatus = require("../../handlers/responseStatus.handler");
 
-/**
- * @desc Create Subject
- * @route POST /api/v1/subjects/create
- * @access Private
- */
-exports.createSubjectController = async (req, res) => {
+exports.createSubjectController = async (req, res, next) => {
   try {
-    const result = await createSubjectService(req.body);
-    responseStatus(res, 201, "success", result);
+    const subject = await createSubjectService(req.body);
+    res.status(201).json({
+      status: "success",
+      data: subject,
+    });
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    next(error);
   }
 };
 
-/**
- * @desc Get all Subjects
- * @route GET /api/v1/subjects
- * @access Private
- */
-exports.getSubjectsController = async (req, res) => {
+exports.updateSubjectController = async (req, res, next) => {
+  try {
+    const subject = await updateSubjectService(req.body, req.params.id);
+    res.status(200).json({
+      status: "success",
+      data: subject,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getSubjectsController = async (req, res, next) => {
   try {
     const subjects = await getAllSubjectsService();
-    responseStatus(res, 200, "success", subjects);
+    res.status(200).json({
+      status: "success",
+      data: subjects,
+    });
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    next(error);
   }
 };
 
-/**
- * @desc Get single Subject
- * @route GET /api/v1/subjects/:id
- * @access Private
- */
-exports.getSubjectController = async (req, res) => {
+exports.getSubjectController = async (req, res, next) => {
   try {
     const subject = await getSubjectsService(req.params.id);
-    
-    responseStatus(res, 200, "success", subject);
+    res.status(200).json({
+      status: "success",
+      data: subject,
+    });
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    next(error);
   }
 };
 
-/**
- * @desc Update Subject
- * @route PATCH /api/v1/subjects/:id
- * @access Private
- */
-exports.updateSubjectController = async (req, res) => {
+exports.deleteSubjectController = async (req, res, next) => {
   try {
-    const result = await updateSubjectService(req.body, req.params.id);
-    // Optional: Transform result to include name as string for frontend
-    const transformedResult = {
-      ...result._doc,
-      name: result.name.name, // Extract string name from populated SubjectName
-    };
-    responseStatus(res, 200, "success", transformedResult);
+    const message = await deleteSubjectService(req.params.id);
+    res.status(200).json({
+      status: "success",
+      message,
+    });
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    next(error);
   }
 };
 
-/**
- * @desc Delete Subject
- * @route DELETE /api/v1/subjects/:id
- * @access Private
- */
-exports.deleteSubjectController = async (req, res) => {
+exports.getSubjectsForSubclassController = async (req, res, next) => {
   try {
-    const result = await deleteSubjectService(req.params.id);
-    responseStatus(res, 200, "success", result);
+    const subjects = await getSubjectsForSubclassService(req.query);
+    res.status(200).json({
+      status: "success",
+      data: subjects,
+    });
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    next(error);
   }
 };
 
-/**
- * @desc Get Subjects for a Subclass
- * @route POST /api/v1/subjects/subclass
- * @access Private
- */
-exports.getSubjectsForSubclassController = async (req, res) => {
-  try {
-    const subjects = await getSubjectsForSubclassService(req.query); // Use req.query instead of req.body
-    console.log(subjects)
-    // Transform subjects to include name as string for frontend
-    const transformedSubjects = subjects.map(subject => ({
-      ...subject._doc,
-      name: subject.name?.name || 'Unknown', // Fallback to 'Unknown' if name is missing
-    }));
-
-    responseStatus(res, 200, "success", transformedSubjects);
-  } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
-  }
-};
-
-/**
- * @desc Get Subjects for a Teacher
- * @route GET /api/v1/subjects/teacher/:teacherId
- * @access Private
- */
-exports.getSubjectsForTeacherController = async (req, res) => {
+exports.getSubjectsForTeacherController = async (req, res, next) => {
   try {
     const subjects = await getSubjectsForTeacherService(req.params.teacherId);
-    // Optional: Transform subjects to include name as string for frontend
-    const transformedSubjects = subjects.map(subject => ({
-      ...subject._doc,
-      name: subject.name.name, // Extract string name from populated SubjectName
-    }));
-    responseStatus(res, 200, "success", transformedSubjects);
+    res.status(200).json({
+      status: "success",
+      data: subjects,
+    });
   } catch (error) {
-    responseStatus(res, error.statusCode || 500, "failed", error.message);
+    next(error);
+  }
+};
+
+exports.getTeacherSubjectsByClassController = async (req, res, next) => {
+  try {
+    const { classId, teacherId } = req.params;
+    const subjects = await getTeacherSubjectsByClassService(classId, teacherId);
+    res.status(200).json({
+      status: "success",
+      data: subjects,
+    });
+  } catch (error) {
+    next(error);
+  }
+};
+
+exports.getStudentsBySubjectController = async (req, res, next) => {
+  try {
+    const { classId, subclassLetter } = req.params;
+    const result = await getStudentsBySubjectService(classId, subclassLetter);
+    res.status(200).json({
+      status: "success",
+      data: result,
+    });
+  } catch (error) {
+    next(error);
   }
 };
