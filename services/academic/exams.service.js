@@ -1,155 +1,539 @@
-// Import necessary models
-const Teacher = require("../../models/Staff/teachers.model");
 const Exams = require("../../models/Academic/exams.model");
-// Import responseStatus handler
+const Teacher = require("../../models/Staff/teachers.model");
+const Subject = require("../../models/Academic/subject.model");
+const ClassLevel = require("../../models/Academic/class.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
-/**
- * Create exam service by a teacher.
- *
- * @param {Object} data - The data containing information about the exam.
- * @param {string} data.name - The name of the exam.
- * @param {string} data.description - The description of the exam.
- * @param {string} data.subject - The subject of the exam.
- * @param {string} data.program - The program associated with the exam.
- * @param {number} data.passMark - The pass mark for the exam.
- * @param {number} data.totalMark - The total mark for the exam.
- * @param {string} data.academicTerm - The academic term associated with the exam.
- * @param {number} data.duration - The duration of the exam.
- * @param {string} data.examDate - The date of the exam.
- * @param {string} data.examTime - The time of the exam.
- * @param {string} teacherId - The ID of the teacher creating the exam.
- * @returns {Object} - The response object indicating success or failure.
- */
-exports.createExamService = async (data, teacherId) => {
+// Teacher: Create Exam
+const teacherCreateExamService = async (data, teacherId) => {
   const {
     name,
     description,
     subject,
-    program,
+    classLevel,
     passMark,
     totalMark,
     academicTerm,
-    duration,
-    examDate,
-    examTime,
-  } = data;
-
-  // Find the teacher
-  const teacherExist = await Teacher.findById(teacherId);
-  if (!teacherExist)
-    return responseStatus(res, 401, "failed", "Teacher not found!");
-
-  // Check if the exam already exists
-  const examExist = await Exams.findOne({ name });
-  if (examExist)
-    return responseStatus(res, 402, "failed", "Exam already exists");
-
-  // Create the exam
-  const examCreate = await Exams.create({
-    name,
-    description,
-    subject,
-    program,
-    passMark,
-    totalMark,
-    academicTerm,
-    duration,
-    examDate,
-    examTime,
-    createdBy: teacherExist._id,
-  });
-
-  // Save exam ID to the teacher collection
-  teacherExist.examsCreated.push(examCreate._id);
-  await teacherExist.save();
-
-  // Send the response
-  return responseStatus(res, 200, "success", examCreate);
-};
-
-/**
- * Get all exams service.
- *
- * @returns {Array} - An array of all exams.
- */
-exports.getAllExamService = async () => {
-  return await Exams.find();
-};
-
-/**
- * Get exam by ID service.
- *
- * @param {string} id - The ID of the exam.
- * @returns {Object} - The exam object.
- */
-exports.getExamByIdService = async (id) => {
-  return await Exams.findById(id);
-};
-
-/**
- * Update exam service.
- *
- * @param {Object} data - The data containing updated information about the exam.
- * @param {string} data.name - The updated name of the exam.
- * @param {string} data.description - The updated description of the exam.
- * @param {string} data.subject - The updated subject of the exam.
- * @param {string} data.program - The updated program associated with the exam.
- * @param {string} data.academicTerm - The updated academic term associated with the exam.
- * @param {number} data.duration - The updated duration of the exam.
- * @param {string} data.examDate - The updated date of the exam.
- * @param {string} data.examTime - The updated time of the exam.
- * @param {string} data.examType - The updated type of the exam.
- * @param {string} data.createdBy - The updated ID of the user creating the exam.
- * @param {string} data.academicYear - The updated academic year associated with the exam.
- * @param {string} data.classLevel - The updated class level associated with the exam.
- * @param {string} examId - The ID of the exam to be updated.
- * @returns {Object} - The response object indicating success or failure.
- */
-exports.updateExamService = async (data, examId) => {
-  const {
-    name,
-    description,
-    subject,
-    program,
-    academicTerm,
+    academicYear,
     duration,
     examDate,
     examTime,
     examType,
-    createdBy,
-    academicYear,
-    classLevel,
+    startDate,
+    startTime,
   } = data;
 
-  // Check if the updated name already exists
-  const examFound = await Exams.findOne({ name });
-  if (examFound) {
-    return responseStatus(res, 402, "failed", "Exam already exists");
+  // Validate teacher
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) {
+    return responseStatus(null, 404, "failed", "Teacher not found");
   }
 
-  // Update the exam
+  // Prevent admins from using teacher service
+  if (teacher.isAdmin) {
+    return responseStatus(null, 403, "failed", "Admins must use admin endpoints");
+  }
+
+  // Validate subject and class level
+  const subjectDoc = await Subject.findById(subject).populate("name");
+  if (!subjectDoc) {
+    return responseStatus(null, 404, "failed", "Subject not found");
+  }
+  const classLevelDoc = await ClassLevel.findById(classLevel);
+  if (!classLevelDoc) {
+    return responseStatus(null, 404, "failed", "Class level not found");
+  }
+
+  // Check if teacher is assigned to the subject in the class level
+  const isAssigned = await checkTeacherAssignment(teacherId, subject, classLevel);
+  if (!isAssigned) {
+    return responseStatus(null, 403, "failed", "Teacher not assigned to this subject in the specified class level");
+  }
+
+  // Check if exam exists
+  const examExist = await Exams.findOne({
+    name,
+    subject,
+    classLevel,
+    academicTerm,
+    academicYear,
+  });
+  if (examExist) {
+    return responseStatus(null, 400, "failed", "Exam already exists");
+  }
+
+  // Create exam
+  const examCreate = await Exams.create({
+    name,
+    description,
+    subject,
+    classLevel,
+    passMark,
+    totalMark,
+    academicTerm,
+    academicYear,
+    duration,
+    examDate,
+    examTime,
+    examType,
+    examStatus: "pending",
+    startDate: startDate || null,
+    startTime: startTime || null,
+    createdBy: teacherId,
+  });
+
+  // Update teacher's examsCreated
+  teacher.examsCreated = teacher.examsCreated || [];
+  teacher.examsCreated.push(examCreate._id);
+  await teacher.save();
+
+  return responseStatus(null, 201, "success", examCreate);
+};
+
+// Teacher: Get All Exams
+const teacherGetAllExamsService = async (teacherId, filters = {}) => {
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) {
+    return responseStatus(null, 404, "failed", "Teacher not found");
+  }
+
+  // Prevent admins from using teacher service
+  if (teacher.isAdmin) {
+    return responseStatus(null, 403, "failed", "Admins must use admin endpoints");
+  }
+
+  const query = { createdBy: teacherId };
+  if (filters.classLevel) query.classLevel = filters.classLevel;
+  if (filters.subject) query.subject = filters.subject;
+  if (filters.examStatus) query.examStatus = filters.examStatus;
+  if (filters.academicYear) query.academicYear = filters.academicYear;
+  if (filters.academicTerm) query.academicTerm = filters.academicTerm;
+
+  return await Exams.find(query)
+    .populate("subject")
+    .populate("classLevel")
+    .populate("academicTerm")
+    .populate("academicYear")
+    .populate("createdBy", "firstName lastName teacherId");
+};
+
+// Teacher: Get Exam by ID
+const teacherGetExamByIdService = async (examId, teacherId) => {
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) {
+    return responseStatus(null, 404, "failed", "Teacher not found");
+  }
+
+  // Prevent admins from using teacher service
+  if (teacher.isAdmin) {
+    return responseStatus(null, 403, "failed", "Admins must use admin endpoints");
+  }
+
+  const exam = await Exams.findById(examId)
+    .populate("subject")
+    .populate("classLevel")
+    .populate("academicTerm")
+    .populate("academicYear")
+    .populate("createdBy", "firstName lastName teacherId");
+
+  if (!exam) {
+    return responseStatus(null, 404, "failed", "Exam not found");
+  }
+
+  // Ensure teacher created the exam
+  if (exam.createdBy.toString() !== teacherId) {
+    return responseStatus(null, 403, "failed", "Unauthorized to access this exam");
+  }
+
+  return responseStatus(null, 200, "success", exam);
+};
+
+// Teacher: Update Exam
+const teacherUpdateExamService = async (data, examId, teacherId) => {
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) {
+    return responseStatus(null, 404, "failed", "Teacher not found");
+  }
+
+  // Prevent admins from using teacher service
+  if (teacher.isAdmin) {
+    return responseStatus(null, 403, "failed", "Admins must use admin endpoints");
+  }
+
+  const exam = await Exams.findById(examId);
+  if (!exam) {
+    return responseStatus(null, 404, "failed", "Exam not found");
+  }
+
+  // Ensure teacher created the exam
+  if (exam.createdBy.toString() !== teacherId) {
+    return responseStatus(null, 403, "failed", "Unauthorized to update this exam");
+  }
+
+  // If updating subject or classLevel, verify teacher assignment
+  const subjectId = data.subject || exam.subject;
+  const classLevelId = data.classLevel || exam.classLevel;
+  const isAssigned = await checkTeacherAssignment(teacherId, subjectId, classLevelId);
+  if (!isAssigned) {
+    return responseStatus(null, 403, "failed", "Teacher not assigned to this subject in the specified class level");
+  }
+
+  // Validate subject and classLevel if provided
+  if (data.subject) {
+    const subjectDoc = await Subject.findById(data.subject).populate("name");
+    if (!subjectDoc) {
+      return responseStatus(null, 404, "failed", "Subject not found");
+    }
+  }
+  if (data.classLevel) {
+    const classLevelDoc = await ClassLevel.findById(data.classLevel);
+    if (!classLevelDoc) {
+      return responseStatus(null, 404, "failed", "Class level not found");
+    }
+  }
+
+  // Check for duplicate exam
+  const examDuplicate = await Exams.findOne({
+    name: data.name || exam.name,
+    subject: data.subject || exam.subject,
+    classLevel: data.classLevel || exam.classLevel,
+    academicTerm: data.academicTerm || exam.academicTerm,
+    academicYear: data.academicYear || exam.academicYear,
+    _id: { $ne: examId },
+  });
+
+  if (examDuplicate) {
+    return responseStatus(null, 400, "failed", "Exam with these details already exists");
+  }
+
+  // Prevent updating startDate/startTime if exam is approved
+  if (exam.examStatus === "approved" && (data.startDate || data.startTime)) {
+    return responseStatus(null, 400, "failed", "Cannot modify start date/time of an approved exam");
+  }
+
   const examUpdated = await Exams.findByIdAndUpdate(
     examId,
-    {
-      name,
-      description,
-      subject,
-      program,
-      academicTerm,
-      duration,
-      examDate,
-      examTime,
-      examType,
-      createdBy,
-      academicYear,
-      classLevel,
-    },
-    {
-      new: true,
-    }
+    { $set: { ...data, startDate: data.startDate || null, startTime: data.startTime || null } },
+    { new: true, runValidators: true }
   );
 
-  // Send the response
-  return responseStatus(res, 200, "success", examUpdated);
+  return responseStatus(null, 200, "success", examUpdated);
+};
+
+// Teacher: Delete Exam
+const teacherDeleteExamService = async (examId, teacherId) => {
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) {
+    return responseStatus(null, 404, "failed", "Teacher not found");
+  }
+
+  // Prevent admins from using teacher service
+  if (teacher.isAdmin) {
+    return responseStatus(null, 403, "failed", "Admins must use admin endpoints");
+  }
+
+  const exam = await Exams.findById(examId);
+  if (!exam) {
+    return responseStatus(null, 404, "failed", "Exam not found");
+  }
+
+  // Ensure teacher created the exam
+  if (exam.createdBy.toString() !== teacherId) {
+    return responseStatus(null, 403, "failed", "Unauthorized to delete this exam");
+  }
+
+  // Verify teacher is assigned to the subject in the class
+  const isAssigned = await checkTeacherAssignment(teacherId, exam.subject, exam.classLevel);
+  if (!isAssigned) {
+    return responseStatus(null, 403, "failed", "Teacher not assigned to this subject in the specified class level");
+  }
+
+  // Remove exam from teacher's examsCreated
+  await Teacher.findByIdAndUpdate(teacherId, {
+    $pull: { examsCreated: examId },
+  });
+
+  await Exams.findByIdAndDelete(examId);
+  return responseStatus(null, 200, "success", "Exam deleted successfully");
+};
+
+// Admin: Create Exam
+const adminCreateExamService = async (data, adminId) => {
+  const {
+    name,
+    description,
+    subject,
+    classLevel,
+    passMark,
+    totalMark,
+    academicTerm,
+    academicYear,
+    duration,
+    examDate,
+    examTime,
+    examType,
+    startDate,
+    startTime,
+  } = data;
+
+  // Validate admin
+  const admin = await Teacher.findById(adminId);
+  if (!admin || !admin.isAdmin) {
+    return responseStatus(null, 403, "failed", "Only admins can create exams");
+  }
+
+  // Validate subject and class level
+  const subjectDoc = await Subject.findById(subject).populate("name");
+  if (!subjectDoc) {
+    return responseStatus(null, 404, "failed", "Subject not found");
+  }
+  const classLevelDoc = await ClassLevel.findById(classLevel);
+  if (!classLevelDoc) {
+    return responseStatus(null, 404, "failed", "Class level not found");
+  }
+
+  // Check if exam exists
+  const examExist = await Exams.findOne({
+    name,
+    subject,
+    classLevel,
+    academicTerm,
+    academicYear,
+  });
+  if (examExist) {
+    return responseStatus(null, 400, "failed", "Exam already exists");
+  }
+
+  // Create exam
+  const examCreate = await Exams.create({
+    name,
+    description,
+    subject,
+    classLevel,
+    passMark,
+    totalMark,
+    academicTerm,
+    academicYear,
+    duration,
+    examDate,
+    examTime,
+    examType,
+    examStatus: "pending",
+    startDate: startDate || null,
+    startTime: startTime || null,
+    createdBy: adminId,
+  });
+
+  // Update admin's examsCreated
+  admin.examsCreated = admin.examsCreated || [];
+  admin.examsCreated.push(examCreate._id);
+  await admin.save();
+
+  return responseStatus(null, 201, "success", examCreate);
+};
+
+// Admin: Get All Exams
+const adminGetAllExamsService = async (adminId, filters = {}) => {
+  const admin = await Teacher.findById(adminId);
+  if (!admin || !admin.isAdmin) {
+    return responseStatus(null, 403, "failed", "Only admins can access all exams");
+  }
+
+  const query = {};
+  if (filters.classLevel) query.classLevel = filters.classLevel;
+  if (filters.subject) query.subject = filters.subject;
+  if (filters.examStatus) query.examStatus = filters.examStatus;
+  if (filters.academicYear) query.academicYear = filters.academicYear;
+  if (filters.academicTerm) query.academicTerm = filters.academicTerm;
+  if (filters.createdBy) query.createdBy = filters.createdBy;
+
+  return await Exams.find(query)
+    .populate("subject")
+    .populate("classLevel")
+    .populate("academicTerm")
+    .populate("academicYear")
+    .populate("createdBy", "firstName lastName teacherId");
+};
+
+// Admin: Get Exam by ID
+const adminGetExamByIdService = async (examId, adminId) => {
+  const admin = await Teacher.findById(adminId);
+  if (!admin || !admin.isAdmin) {
+    return responseStatus(null, 403, "failed", "Only admins can access this exam");
+  }
+
+  const exam = await Exams.findById(examId)
+    .populate("subject")
+    .populate("classLevel")
+    .populate("academicTerm")
+    .populate("academicYear")
+    .populate("createdBy", "firstName lastName teacherId");
+
+  if (!exam) {
+    return responseStatus(null, 404, "failed", "Exam not found");
+  }
+
+  return responseStatus(null, 200, "success", exam);
+};
+
+// Admin: Update Exam
+const adminUpdateExamService = async (data, examId, adminId) => {
+  const admin = await Teacher.findById(adminId);
+  if (!admin || !admin.isAdmin) {
+    return responseStatus(null, 403, "failed", "Only admins can update exams");
+  }
+
+  const exam = await Exams.findById(examId);
+  if (!exam) {
+    return responseStatus(null, 404, "failed", "Exam not found");
+  }
+
+  // Validate subject and classLevel if provided
+  if (data.subject) {
+    const subjectDoc = await Subject.findById(data.subject).populate("name");
+    if (!subjectDoc) {
+      return responseStatus(null, 404, "failed", "Subject not found");
+    }
+  }
+  if (data.classLevel) {
+    const classLevelDoc = await ClassLevel.findById(data.classLevel);
+    if (!classLevelDoc) {
+      return responseStatus(null, 404, "failed", "Class level not found");
+    }
+  }
+
+  // Check for duplicate exam
+  const examDuplicate = await Exams.findOne({
+    name: data.name || exam.name,
+    subject: data.subject || exam.subject,
+    classLevel: data.classLevel || exam.classLevel,
+    academicTerm: data.academicTerm || exam.academicTerm,
+    academicYear: data.academicYear || exam.academicYear,
+    _id: { $ne: examId },
+  });
+
+  if (examDuplicate) {
+    return responseStatus(null, 400, "failed", "Exam with these details already exists");
+  }
+
+  // Prevent updating startDate/startTime if exam is approved
+  if (exam.examStatus === "approved" && (data.startDate || data.startTime)) {
+    return responseStatus(null, 400, "failed", "Cannot modify start date/time of an approved exam");
+  }
+
+  const examUpdated = await Exams.findByIdAndUpdate(
+    examId,
+    { $set: { ...data, startDate: data.startDate || null, startTime: data.startTime || null } },
+    { new: true, runValidators: true }
+  );
+
+  return responseStatus(null, 200, "success", examUpdated);
+};
+
+// Admin: Delete Exam
+const adminDeleteExamService = async (examId, adminId) => {
+  const admin = await Teacher.findById(adminId);
+  if (!admin || !admin.isAdmin) {
+    return responseStatus(null, 403, "failed", "Only admins can delete exams");
+  }
+
+  const exam = await Exams.findById(examId);
+  if (!exam) {
+    return responseStatus(null, 404, "failed", "Exam not found");
+  }
+
+  // Remove exam from creator's examsCreated
+  await Teacher.findByIdAndUpdate(exam.createdBy, {
+    $pull: { examsCreated: examId },
+  });
+
+  await Exams.findByIdAndDelete(examId);
+  return responseStatus(null, 200, "success", "Exam deleted successfully");
+};
+
+// Admin: Approve Exam
+const adminApproveExamService = async (examId, adminId, startDate, startTime) => {
+  const admin = await Teacher.findById(adminId);
+  if (!admin || !admin.isAdmin) {
+    return responseStatus(null, 403, "failed", "Only admins can approve exams");
+  }
+
+  const exam = await Exams.findById(examId);
+  if (!exam) {
+    return responseStatus(null, 404, "failed", "Exam not found");
+  }
+
+  if (exam.examStatus === "approved") {
+    return responseStatus(null, 400, "failed", "Exam is already approved");
+  }
+
+  if (!startDate || !startTime) {
+    return responseStatus(null, 400, "failed", "Start date and time are required for approval");
+  }
+
+  const parsedStartDate = new Date(startDate);
+  if (isNaN(parsedStartDate)) {
+    return responseStatus(null, 400, "failed", "Invalid start date format");
+  }
+
+  exam.examStatus = "approved";
+  exam.startDate = parsedStartDate;
+  exam.startTime = startTime;
+  await exam.save();
+
+  return responseStatus(null, 200, "success", {
+    message: "Exam approved successfully",
+    exam,
+  });
+};
+
+// Helper function to check if teacher is assigned to a subject in a class level
+async function checkTeacherAssignment(teacherId, subjectId, classLevelId) {
+  const subject = await Subject.findById(subjectId);
+  if (!subject) {
+    return false;
+  }
+
+  const classLevel = await ClassLevel.findById(classLevelId);
+  if (!classLevel) {
+    return false;
+  }
+
+  // Check if the subject is assigned to the class level in classLevelSubclasses
+  const assignment = subject.classLevelSubclasses.find(cls => 
+    cls.classLevel.toString() === classLevelId.toString()
+  );
+
+  if (!assignment) {
+    return false;
+  }
+
+  // For SS classes, ensure subclassLetter exists and teacher is assigned
+  if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
+    if (!assignment.subclassLetter) {
+      return false;
+    }
+    const subclassExists = classLevel.subclasses.some(sub => sub.letter === assignment.subclassLetter);
+    if (!subclassExists) {
+      return false;
+    }
+    return assignment.teachers.some(t => t.toString() === teacherId);
+  }
+
+  // For non-SS classes, no subclassLetter is required, just check teachers
+  return assignment.teachers.some(t => t.toString() === teacherId);
+}
+
+module.exports = {
+  teacherCreateExamService,
+  teacherGetAllExamsService,
+  teacherGetExamByIdService,
+  teacherUpdateExamService,
+  teacherDeleteExamService,
+  adminCreateExamService,
+  adminGetAllExamsService,
+  adminGetExamByIdService,
+  adminUpdateExamService,
+  adminDeleteExamService,
+  adminApproveExamService,
 };

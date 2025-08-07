@@ -1,8 +1,6 @@
 const mongoose = require("mongoose");
-
 const { ObjectId } = mongoose.Schema;
 
-//examSchema
 const examSchema = new mongoose.Schema(
   {
     name: {
@@ -19,20 +17,13 @@ const examSchema = new mongoose.Schema(
       ref: "Subject",
       required: true,
     },
-    program: {
-      type: ObjectId,
-      ref: "Program",
-      required: true,
-    },
     passMark: {
       type: Number,
       required: true,
-      default: 50,
     },
     totalMark: {
       type: Number,
       required: true,
-      default: 100,
     },
     duration: {
       type: String,
@@ -48,16 +39,24 @@ const examSchema = new mongoose.Schema(
       type: String,
       required: true,
     },
+    startDate: {
+      type: Date,
+      required: false,
+    },
+    startTime: {
+      type: String,
+      required: false,
+    },
     examType: {
       type: String,
       required: true,
-      default: "Quiz",
+      enum: ["test", "exam"],
     },
     examStatus: {
       type: String,
       required: true,
       default: "pending",
-      enum: ["pending", "live"],
+      enum: ["pending", "approved"],
     },
     questions: [
       {
@@ -90,5 +89,4 @@ const examSchema = new mongoose.Schema(
 );
 
 const Exam = mongoose.model("Exam", examSchema);
-
 module.exports = Exam;

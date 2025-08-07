@@ -2,6 +2,7 @@ const Subject = require("../../models/Academic/subject.model");
 const SubjectName = require("../../models/Academic/subjectName.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const Teacher = require("../../models/Staff/teachers.model");
+const Student = require("../../models/Students/students.model");
 const mongoose = require("mongoose");
 
 /**
@@ -82,8 +83,8 @@ exports.createSubjectService = async (data) => {
           // Create entries for all subclasses with their respective letters
           return subclassLetters.map((letter) => ({
             classLevel: cls.classLevel,
-            subclassLetter: letter, // Use the actual subclass letter
-            teachers: cls.teachers || [], // Use provided teachers or empty array
+            subclassLetter: letter,
+            teachers: cls.teachers || [],
           }));
         } else {
           // Validate subclassLetter for SS classes
@@ -145,10 +146,9 @@ exports.createSubjectService = async (data) => {
   if (sanitizedClassLevelSubclasses.length > 0) {
     for (const cls of sanitizedClassLevelSubclasses) {
       const classLevel = await ClassLevel.findById(cls.classLevel);
-      if (!classLevel) continue; // Skip if ClassLevel no longer exists
+      if (!classLevel) continue;
 
       if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
-        // Add subject to specific subclass for SS
         await ClassLevel.updateOne(
           {
             _id: cls.classLevel,
@@ -167,7 +167,6 @@ exports.createSubjectService = async (data) => {
           }
         );
       } else {
-        // Add subject to class-level subjects and specific subclass for non-SS
         await ClassLevel.updateOne(
           {
             _id: cls.classLevel,
@@ -272,8 +271,8 @@ exports.updateSubjectService = async (data, id) => {
           // Create entries for all subclasses with their respective letters
           return subclassLetters.map((letter) => ({
             classLevel: cls.classLevel,
-            subclassLetter: letter, // Use the actual subclass letter
-            teachers: cls.teachers || [], // Use provided teachers or empty array
+            subclassLetter: letter,
+            teachers: cls.teachers || [],
           }));
         } else {
           // Validate subclassLetter for SS classes
@@ -328,7 +327,7 @@ exports.updateSubjectService = async (data, id) => {
   if (subject.classLevelSubclasses && subject.classLevelSubclasses.length > 0) {
     for (const cls of subject.classLevelSubclasses) {
       const classLevel = await ClassLevel.findById(cls.classLevel);
-      if (!classLevel) continue; // Skip if ClassLevel no longer exists
+      if (!classLevel) continue;
 
       if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
         const newSubclasses = sanitizedClassLevelSubclasses
@@ -379,7 +378,7 @@ exports.updateSubjectService = async (data, id) => {
   if (sanitizedClassLevelSubclasses.length > 0) {
     for (const cls of sanitizedClassLevelSubclasses) {
       const classLevel = await ClassLevel.findById(cls.classLevel);
-      if (!classLevel) continue; // Skip if ClassLevel no longer exists
+      if (!classLevel) continue;
 
       if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
         await ClassLevel.updateOne(
@@ -504,7 +503,7 @@ exports.deleteSubjectService = async (id) => {
     for (const cls of subject.classLevelSubclasses) {
       const classLevel = await ClassLevel.findById(cls.classLevel);
       if (!classLevel) {
-        continue; // Skip if ClassLevel no longer exists
+        continue;
       }
       if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
         await ClassLevel.updateOne(
@@ -571,7 +570,7 @@ exports.getSubjectsForSubclassService = async (data = {}) => {
   if (!classLevelId || !subclassLetter) {
     const subjects = await Subject.find().populate({
       path: 'name',
-      select: 'name', // Only fetch the name field from SubjectName
+      select: 'name',
     });
     return subjects;
   }
@@ -594,10 +593,8 @@ exports.getSubjectsForSubclassService = async (data = {}) => {
 
   let subjectIds = [];
   if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
-    // For SS, get subjects from subclass
     subjectIds = subclass.subjects.map((s) => s.subject);
   } else {
-    // For Primary/JSS, get subjects from class level or subclass
     subjectIds = subclass.subjects.map((s) => s.subject);
   }
 
@@ -617,7 +614,7 @@ exports.getSubjectsForSubclassService = async (data = {}) => {
   // Fetch subjects and ensure name is populated
   const subjects = await Subject.find({ _id: { $in: subjectIds } }).populate({
     path: 'name',
-    select: 'name', // Only fetch the name field from SubjectName
+    select: 'name',
   });
 
   return subjects;
@@ -663,4 +660,163 @@ exports.getSubjectsForTeacherService = async (teacherId) => {
   const subjects = await Subject.find({ _id: { $in: Array.from(subjectIds) } }).populate("name");
 
   return subjects;
+};
+
+/**
+ * Get Subjects for a Teacher in a specific Class service
+ * @param {string} classId - The ID of the ClassLevel
+ * @param {string} teacherId - The ID of the Teacher
+ * @returns {Array} - List of subjects assigned to the teacher in the class
+ * @throws {Error} - If validation fails or class/teacher not found
+ */
+exports.getTeacherSubjectsByClassService = async (classId, teacherId) => {
+  // Validate inputs
+  if (!mongoose.Types.ObjectId.isValid(classId)) {
+    const error = new Error("Invalid ClassLevel ID");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!mongoose.Types.ObjectId.isValid(teacherId)) {
+    const error = new Error("Invalid Teacher ID");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Validate class and teacher existence
+  const classLevel = await ClassLevel.findById(classId);
+  if (!classLevel) {
+    const error = new Error("ClassLevel not found");
+    error.statusCode = 404;
+    throw error;
+  }
+  const teacher = await Teacher.findById(teacherId);
+  if (!teacher) {
+    const error = new Error("Teacher not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  const isNonJSSorSS = ![
+    "JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"
+  ].includes(classLevel.name);
+
+  let subjectIds = new Set();
+
+  // Collect subject IDs from all subclasses where the teacher is assigned
+  classLevel.subclasses.forEach((subclass) => {
+    subclass.subjects.forEach((subjectEntry) => {
+      if (subjectEntry.teachers.some((t) => t.toString() === teacherId)) {
+        subjectIds.add(subjectEntry.subject.toString());
+      }
+    });
+  });
+
+  if (isNonJSSorSS && subjectIds.size > 0) {
+    // For non-JSS/SS classes, if the teacher is assigned to any subject, include all subjects
+    classLevel.subclasses.forEach((subclass) => {
+      subclass.subjects.forEach((subjectEntry) => {
+        subjectIds.add(subjectEntry.subject.toString());
+      });
+    });
+    // Also include subjects assigned directly at the class level (for non-SS)
+    classLevel.subjects.forEach((subjectId) => {
+      subjectIds.add(subjectId.toString());
+    });
+  }
+
+  if (subjectIds.size === 0) {
+    return [];
+  }
+
+  // Fetch subjects with populated names
+  const subjects = await Subject.find({ _id: { $in: Array.from(subjectIds) } }).populate({
+    path: 'name',
+    select: 'name',
+  });
+
+  return subjects;
+};
+
+/**
+ * Get Students by Subject for a Class and Subclass service
+ * @param {string} classId - The ID of the ClassLevel
+ * @param {string} subclassLetter - The subclass letter (e.g., 'A', 'B')
+ * @returns {Array} - List of subjects with their enrolled students
+ * @throws {Error} - If validation fails or class/subclass not found
+ */
+exports.getStudentsBySubjectService = async (classId, subclassLetter) => {
+  // Validate inputs
+  if (!mongoose.Types.ObjectId.isValid(classId)) {
+    const error = new Error("Invalid ClassLevel ID");
+    error.statusCode = 400;
+    throw error;
+  }
+  if (!subclassLetter || !/^[A-Z]$/.test(subclassLetter)) {
+    const error = new Error("Invalid subclass letter");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Validate class and subclass
+  const classLevel = await ClassLevel.findById(classId);
+  if (!classLevel) {
+    const error = new Error("ClassLevel not found");
+    error.statusCode = 404;
+    throw error;
+  }
+  const subclass = classLevel.subclasses.find((sub) => sub.letter === subclassLetter);
+  if (!subclass) {
+    const error = new Error(`Subclass ${subclassLetter} does not exist in ${classLevel.name}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  const isNonJSSorSS = ![
+    "JSS 1", "JSS 2", "JSS 3", "SS 1", "SS 2", "SS 3"
+  ].includes(classLevel.name);
+
+  // Get subject IDs
+  let subjectIds = [];
+  if (isNonJSSorSS) {
+    // For non-JSS/SS, include class-level subjects and subclass subjects
+    subjectIds = [
+      ...classLevel.subjects.map((s) => s.toString()),
+      ...subclass.subjects.map((s) => s.subject.toString()),
+    ];
+  } else {
+    // For JSS/SS, include only subclass subjects
+    subjectIds = subclass.subjects.map((s) => s.subject.toString());
+  }
+
+  // Remove duplicates
+  subjectIds = [...new Set(subjectIds)];
+
+  // Fetch subjects with names
+  const subjects = await Subject.find({ _id: { $in: subjectIds } }).populate({
+    path: 'name',
+    select: 'name',
+  });
+
+  // Fetch students enrolled in the class and subclass
+  const students = await Student.find({
+    classLevelId: classId,
+    'currentClassLevel.subclass': subclassLetter,
+    isGraduated: false,
+    isSuspended: false,
+    isWithdrawn: false,
+  }).select('firstName lastName studentId email');
+
+  // Map subjects to include their enrolled students
+  const result = subjects.map((subject) => ({
+    subjectId: subject._id,
+    subjectName: subject.name.name,
+    students: students.map((student) => ({
+      studentId: student.studentId,
+      firstName: student.firstName,
+      lastName: student.lastName,
+      email: student.email,
+    })),
+  }));
+
+  return result;
 };
