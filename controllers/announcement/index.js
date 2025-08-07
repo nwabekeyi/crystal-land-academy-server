@@ -1,4 +1,3 @@
-// controllers/announcement.controller.js
 const {
   createGeneralAnnouncement,
   createClassAnnouncement,
@@ -6,94 +5,116 @@ const {
   deleteAnnouncement,
   getAllAnnouncements,
   getAnnouncementById,
-} = require('../../services/announcement');
-const responseStatus = require('../../handlers/responseStatus.handler');
-const mongoose = require('mongoose');
+  getAnnouncementsByClassLevel,
+} = require('../../services/announcement'); // Adjust to your services path
+const responseStatus = require('../../handlers/responseStatus.handler'); // Adjust to your handlers path
 
-const createGeneralAnnouncementController = async (req, res) => {
+/**
+ * Create a general announcement (Admin only).
+ */
+exports.createGeneralAnnouncementController = async (req, res) => {
   try {
-    const { title, message, date, createdBy } = req.body;
-    if (!title || !message || !date || !createdBy) {
-      return responseStatus(res, 400, 'error', 'All fields are required, including createdBy');
-    }
-    if (!mongoose.isValidObjectId(createdBy)) {
-      return responseStatus(res, 400, 'error', 'Invalid createdBy ID');
-    }
-    if (createdBy !== req.userAuth.id) {
-      return responseStatus(res, 403, 'error', 'createdBy must match authenticated user');
-    }
-    const announcement = await createGeneralAnnouncement({ title, message, dueDate: date, createdBy });
-    return responseStatus(res, 201, 'success', { announcement });
+    const { title, message, dueDate } = req.body;
+    const createdBy = req.userAuth.id;
+    const announcement = await createGeneralAnnouncement({
+      title,
+      message,
+      dueDate,
+      createdBy,
+    });
+    return responseStatus(res, 201, 'success', announcement);
   } catch (error) {
-    return responseStatus(res, 400, 'error', error.message);
+    return responseStatus(res, 400, 'failed', error.message);
   }
 };
 
-const createClassAnnouncementController = async (req, res) => {
+/**
+ * Create a class announcement (Teacher or Admin).
+ */
+exports.createClassAnnouncementController = async (req, res) => {
   try {
-    const { title, message, date, targets, createdBy } = req.body;
-    if (!title || !message || !date || !targets || !createdBy) {
-      return responseStatus(res, 400, 'error', 'All fields are required, including targets and createdBy');
-    }
-    if (!mongoose.isValidObjectId(createdBy)) {
-      return responseStatus(res, 400, 'error', 'Invalid createdBy ID');
-    }
-    if (createdBy !== req.userAuth.id) {
-      return responseStatus(res, 403, 'error', 'createdBy must match authenticated user');
-    }
-    const announcement = await createClassAnnouncement({ title, message, dueDate: date, targets, createdBy });
-    return responseStatus(res, 201, 'success', { announcement });
+    const { title, message, dueDate, targets } = req.body;
+    console.log(req.userAuth)
+
+    const createdBy = req.userAuth.id;
+    const announcement = await createClassAnnouncement({
+      title,
+      message,
+      dueDate,
+      targets,
+      createdBy,
+    });
+    return responseStatus(res, 201, 'success', announcement);
   } catch (error) {
-    return responseStatus(res, error.message.includes('not found') ? 404 : 400, 'error', error.message);
+    return responseStatus(res, 400, 'failed', error.message);
   }
 };
 
-const updateAnnouncementController = async (req, res) => {
+/**
+ * Update an announcement (Admin or creator).
+ */
+exports.updateAnnouncementController = async (req, res) => {
   try {
-    const { title, message, date, targets } = req.body;
-    const announcement = await updateAnnouncement(
-      req.params.id,
-      { title, message, dueDate: date, targets },
-      req.userAuth
-    );
-    return responseStatus(res, 200, 'success', { announcement });
-  } catch (error) {
-    return responseStatus(res, error.message.includes('not found') ? 404 : 400, 'error', error.message);
-  }
-};
-
-const deleteAnnouncementController = async (req, res) => {
-  try {
-    const result = await deleteAnnouncement(req.params.id, req.userAuth);
-    return responseStatus(res, 200, 'success', result);
-  } catch (error) {
-    return responseStatus(res, error.message.includes('not found') ? 404 : 400, 'error', error.message);
-  }
-};
-
-const getAllAnnouncementsController = async (req, res) => {
-  try {
-    const announcements = await getAllAnnouncements(req.userAuth);
-    return responseStatus(res, 200, 'success', announcements);
-  } catch (error) {
-    return responseStatus(res, 400, 'error', error.message);
-  }
-};
-
-const getAnnouncementByIdController = async (req, res) => {
-  try {
-    const announcement = await getAnnouncementById(req.params.id, req.userAuth);
+    const { id } = req.params;
+    const user = req.userAuth;
+    const announcement = await updateAnnouncement(id, req.body, user);
     return responseStatus(res, 200, 'success', announcement);
   } catch (error) {
-    return responseStatus(res, error.message.includes('not found') ? 404 : 403, 'error', error.message);
+    return responseStatus(res, 400, 'failed', error.message);
   }
 };
 
-module.exports = {
-  createGeneralAnnouncementController,
-  createClassAnnouncementController,
-  updateAnnouncementController,
-  deleteAnnouncementController,
-  getAllAnnouncementsController,
-  getAnnouncementByIdController,
+/**
+ * Delete an announcement (Admin or creator).
+ */
+exports.deleteAnnouncementController = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.userAuth;
+    const result = await deleteAnnouncement(id, user);
+    return responseStatus(res, 200, 'success', result);
+  } catch (error) {
+    return responseStatus(res, 400, 'failed', error.message);
+  }
+};
+
+/**
+ * Get all announcements accessible to the user.
+ */
+exports.getAllAnnouncementsController = async (req, res) => {
+  try {
+    const user = req.userAuth;
+    const announcements = await getAllAnnouncements(user);
+    return responseStatus(res, 200, 'success', announcements);
+  } catch (error) {
+    return responseStatus(res, 400, 'failed', error.message);
+  }
+};
+
+/**
+ * Get a single announcement by ID.
+ */
+exports.getAnnouncementByIdController = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const user = req.userAuth;
+    const announcement = await getAnnouncementById(id, user);
+    return responseStatus(res, 200, 'success', announcement);
+  } catch (error) {
+    return responseStatus(res, 400, 'failed', error.message);
+  }
+};
+
+/**
+ * Get announcements by class level and optional subclass (Admin, Teacher, or Student).
+ */
+exports.getAnnouncementsByClassLevelController = async (req, res) => {
+  try {
+    const { classLevelId, subclass } = req.query;
+    const user = req.userAuth;
+    const announcements = await getAnnouncementsByClassLevel({ classLevelId, subclass }, user);
+    return responseStatus(res, 200, 'success', announcements);
+  } catch (error) {
+    return responseStatus(res, 400, 'failed', error.message);
+  }
 };

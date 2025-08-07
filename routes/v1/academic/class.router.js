@@ -12,29 +12,38 @@ const {
   getClassLevelsAndSubclassesForTeacherController,
   assignTeachersToClassController,
   addSubclassToClassLevelController,
+  getStudentsInSubclassController, // New controller
 } = require("../../../controllers/academic/class.controller");
 
 classRouter
   .route("/class-levels")
   .get(isLoggedIn, getClassLevelsController)
   .post(isLoggedIn, isAdmin, createClassLevelController);
+
 classRouter
   .route("/class-levels/sign-up-data")
   .get(isLoggedIn, isAdmin, signUpClassDataController);
+
 classRouter
   .route("/class-levels/:id")
   .get(isLoggedIn, getClassLevelController)
   .patch(isLoggedIn, isAdmin, updateClassLevelController)
   .delete(isLoggedIn, isAdmin, deleteClassLevelController);
+
 classRouter
   .route("/class-levels/teacher/:teacherId")
   .get(isLoggedIn, getClassLevelsAndSubclassesForTeacherController);
+
 classRouter
   .route("/class-levels/:id/assign-teachers")
   .patch(isLoggedIn, isAdmin, assignTeachersToClassController);
 
-  classRouter
+classRouter
   .route("/class-levels/:id/add-subclass")
   .post(isLoggedIn, isAdmin, addSubclassToClassLevelController);
+
+classRouter
+  .route("/class-levels/:classLevelId/subclasses/:subclassLetter/students")
+  .get(isLoggedIn, getStudentsInSubclassController); // New route
 
 module.exports = classRouter;

@@ -1,3 +1,5 @@
+// services/academic/timetable.service.js
+const mongoose = require('mongoose');
 const Timetable = require('../../models/Academic/timeTable.model');
 const ClassLevel = require('../../models/Academic/class.model');
 const Subject = require('../../models/Academic/subject.model');
@@ -5,7 +7,6 @@ const Student = require('../../models/Students/students.model');
 const AcademicYear = require('../../models/Academic/academicYear.model');
 const Teacher = require('../../models/Staff/teachers.model');
 const responseStatus = require('../../handlers/responseStatus.handler');
-const mongoose = require('mongoose');
 
 /**
  * Get the current academic year
@@ -67,9 +68,28 @@ const isTimeOverlap = (startTime1, numberOfPeriods1, startTime2, numberOfPeriods
 };
 
 /**
+ * Find Subject by name alone
+ */
+const findSubjectByName = async (subjectName) => {
+  return await Subject.findOne({ name: subjectName });
+};
+
+/**
+ * Validate Subject assignment in classLevelSubclasses
+ */
+const validateSubjectAssignment = (subject, classLevel, subclassLetter) => {
+  if (!subject) {
+    return false;
+  }
+  return subject.classLevelSubclasses.some(
+    (cls) => cls.classLevel.toString() === classLevel.toString() && cls.subclassLetter === subclassLetter
+  );
+};
+
+/**
  * Get timetables by classLevel and subclassLetter for the current academic year
  */
-const getTimetablesService = async (classLevel, subclassLetter, subject, res) => {
+const getTimetablesService = async (classLevel, subclassLetter, subjectName, res) => {
   try {
     if (!classLevel || !subclassLetter) {
       return responseStatus(res, 400, 'failed', 'classLevel and subclassLetter are required');
@@ -87,20 +107,27 @@ const getTimetablesService = async (classLevel, subclassLetter, subject, res) =>
       return responseStatus(res, 400, 'failed', `Subclass ${subclassLetter} not found for ClassLevel ${classLevel}`);
     }
 
-    // Fetch valid subject IDs for the classLevel and subclassLetter
+    // Fetch valid subjects for the classLevel and subclassLetter
     const subjectDocs = await Subject.find({
       'classLevelSubclasses.classLevel': classLevel,
       'classLevelSubclasses.subclassLetter': subclassLetter,
-    }).select('_id name classLevelSubclasses teachers');
+    })
+      .populate('name')
+      .select('_id name classLevelSubclasses teachers');
 
     const validSubjectIds = subjectDocs.map((doc) => doc._id.toString());
 
-    // If subject is provided, validate it
-    if (subject) {
-      if (!validSubjectIds.includes(subject.toString())) {
-        const subjectDoc = await Subject.findById(subject);
-        return responseStatus(res, 400, 'failed', `Subject ${subjectDoc?.name || subject} is not assigned to ClassLevel ${classLevel} subclass ${subclassLetter}`);
+    // If subjectName is provided, validate it
+    let subjectId = null;
+    if (subjectName) {
+      const subject = await findSubjectByName(subjectName);
+      if (!subject) {
+        return responseStatus(res, 400, 'failed', `Subject ${subjectName} not found`);
       }
+      if (!validateSubjectAssignment(subject, classLevel, subclassLetter)) {
+        return responseStatus(res, 400, 'failed', `Subject ${subjectName} is not assigned to ClassLevel ${classLevel} subclass ${subclassLetter}`);
+      }
+      subjectId = subject._id;
     }
 
     // Map subjects to their assigned teacher IDs
@@ -110,15 +137,14 @@ const getTimetablesService = async (classLevel, subclassLetter, subject, res) =>
         (cls) => cls.classLevel.toString() === classLevel.toString() && cls.subclassLetter === subclassLetter
       );
       if (assignment && assignment.teachers.length > 0) {
-        teacherMap[subjectDoc._id.toString()] = assignment.teachers[0]; // Use the first teacher
+        teacherMap[subjectDoc._id.toString()] = assignment.teachers[0];
       }
     });
 
     // Fetch teacher details
-    const teacherIds = Object.values(teacherMap);
+    const teacherIds = Object.values(teacherMap).filter((id) => id);
     const teachers = await Teacher.find({ _id: { $in: teacherIds } }).select('_id firstName lastName');
 
-    // Create a map of teacher IDs to their details
     const teacherDetailsMap = {};
     teachers.forEach((teacher) => {
       teacherDetailsMap[teacher._id.toString()] = {
@@ -128,29 +154,36 @@ const getTimetablesService = async (classLevel, subclassLetter, subject, res) =>
       };
     });
 
-    // Fetch timetables
+    // Fetch timetables, excluding periods.attendance
     const query = {
       classLevel,
       subclassLetter,
       academicYear: currentAcademicYear,
-      subject: { $in: validSubjectIds }, // Restrict to valid subjects
+      subject: { $in: validSubjectIds },
     };
 
-    if (subject) {
-      query.subject = subject;
+    if (subjectId) {
+      query.subject = subjectId;
     }
 
     let timetables = await Timetable.find(query)
-      .populate('classLevel', 'name section') // Include section
-      .populate('subject', 'name')
-      .populate('academicYear', 'name');
+      .select('-periods.attendance') // Exclude attendance from periods
+      .populate('classLevel', 'name section')
+      .populate({
+        path: 'subject',
+        populate: { path: 'name', select: 'name' },
+      })
+      .populate('academicYear', 'name')
+      .populate('teacher', 'firstName lastName');
 
-    // Add teacher details to each timetable entry
+    // Transform timetables to include subject name as string
     timetables = timetables.map((timetable) => {
       const timetableObj = timetable.toObject();
       const subjectId = timetable.subject?._id.toString();
-      const teacherId = teacherMap[subjectId];
-      timetableObj.teacher = teacherId ? teacherDetailsMap[teacherId.toString()] || { _id: teacherId, firstName: 'N/A', lastName: '' } : null;
+      timetableObj.subjectName = timetable.subject?.name?.name || 'N/A';
+      timetableObj.teacher = teacherMap[subjectId]
+        ? teacherDetailsMap[teacherMap[subjectId].toString()] || timetable.teacher || { _id: teacherMap[subjectId], firstName: 'N/A', lastName: '' }
+        : null;
       return timetableObj;
     });
 
@@ -188,7 +221,9 @@ const getTeacherTimetableService = async (teacherId, res) => {
   try {
     const subjects = await Subject.find({
       'classLevelSubclasses.teachers': teacherId,
-    }).select('_id classLevelSubclasses name');
+    })
+      .populate('name')
+      .select('_id name classLevelSubclasses');
 
     if (!subjects || subjects.length === 0) {
       return responseStatus(res, 404, 'failed', 'No subjects assigned to this teacher');
@@ -227,15 +262,21 @@ const getTeacherTimetableService = async (teacherId, res) => {
         subject,
         academicYear: currentAcademicYear,
       })),
-      subject: { $in: validSubjectIds }, // Restrict to valid subjects
+      subject: { $in: validSubjectIds },
     })
-      .populate('classLevel', 'name section') // Include section
-      .populate('subject', 'name')
-      .populate('academicYear', 'name');
+      .select('-periods.attendance') // Exclude attendance from periods
+      .populate('classLevel', 'name section')
+      .populate({
+        path: 'subject',
+        populate: { path: 'name', select: 'name' },
+      })
+      .populate('academicYear', 'name')
+      .populate('teacher', 'firstName lastName');
 
     timetables = timetables.map((timetable) => {
       const timetableObj = timetable.toObject();
-      timetableObj.teacher = {
+      timetableObj.subjectName = timetable.subject?.name?.name || 'N/A';
+      timetableObj.teacher = timetable.teacher || {
         _id: teacher._id,
         firstName: teacher.firstName,
         lastName: teacher.lastName,
@@ -257,7 +298,7 @@ const createTimetableService = async (data, res) => {
     const {
       classLevel,
       subclassLetter,
-      subject,
+      subject: subjectName,
       dayOfWeek,
       startTime,
       numberOfPeriods,
@@ -275,7 +316,6 @@ const createTimetableService = async (data, res) => {
       return responseStatus(res, 400, 'failed', 'numberOfPeriods must be a positive integer');
     }
 
-    // Validate time range (07:00 AM - 06:00 PM)
     validateTimeRange(startTime, numberOfPeriods);
 
     const classLevelDoc = await ClassLevel.findById(classLevel).select('name section subclasses');
@@ -288,16 +328,13 @@ const createTimetableService = async (data, res) => {
       return responseStatus(res, 400, 'failed', `Subclass ${subclassLetter} not found for ClassLevel ${classLevel}`);
     }
 
-    const subjectDoc = await Subject.findById(subject);
+    const subjectDoc = await findSubjectByName(subjectName);
     if (!subjectDoc) {
-      return responseStatus(res, 404, 'failed', 'Subject not found');
+      return responseStatus(res, 404, 'failed', `Subject ${subjectName} not found`);
     }
 
-    const subjectAssignment = subjectDoc.classLevelSubclasses.find(
-      (cls) => cls.classLevel.toString() === classLevel.toString() && cls.subclassLetter === subclassLetter
-    );
-    if (!subjectAssignment) {
-      return responseStatus(res, 400, 'failed', `Subject ${subjectDoc.name} is not assigned to ClassLevel ${classLevel} subclass ${subclassLetter}`);
+    if (!validateSubjectAssignment(subjectDoc, classLevel, subclassLetter)) {
+      return responseStatus(res, 400, 'failed', `Subject ${subjectName} is not assigned to ClassLevel ${classLevel} subclass ${subclassLetter}`);
     }
 
     if (teacher) {
@@ -305,8 +342,11 @@ const createTimetableService = async (data, res) => {
       if (!teacherDoc) {
         return responseStatus(res, 404, 'failed', 'Teacher not found');
       }
+      const subjectAssignment = subjectDoc.classLevelSubclasses.find(
+        (cls) => cls.classLevel.toString() === classLevel.toString() && cls.subclassLetter === subclassLetter
+      );
       if (!subjectAssignment.teachers.some((id) => id.toString() === teacher.toString())) {
-        return responseStatus(res, 400, 'failed', `Teacher is not assigned to subject ${subjectDoc.name} for ClassLevel ${classLevel} subclass ${subclassLetter}`);
+        return responseStatus(res, 400, 'failed', `Teacher is not assigned to subject ${subjectName} for ClassLevel ${classLevel} subclass ${subclassLetter}`);
       }
     }
 
@@ -319,12 +359,12 @@ const createTimetableService = async (data, res) => {
         'classLevelSubclasses.classLevel': classLevel,
         'classLevelSubclasses.subclassLetter': subclassLetter,
       }).distinct('_id') },
-    });
+    }).select('-periods.attendance');
 
     for (const existing of existingTimetables) {
-      if (existing.subject.toString() !== subject.toString() && isTimeOverlap(startTime, numberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
-        const conflictingSubject = await Subject.findById(existing.subject);
-        return responseStatus(res, 400, 'failed', `Conflict: Another subject (${conflictingSubject.name}) is scheduled for ${classLevel} ${subclassLetter} on ${dayOfWeek} during the requested time`);
+      if (existing.subject.toString() !== subjectDoc._id.toString() && isTimeOverlap(startTime, numberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
+        const conflictingSubject = await Subject.findById(existing.subject).populate('name');
+        return responseStatus(res, 400, 'failed', `Conflict: Another subject (${conflictingSubject.name?.name || 'Unknown'}) is scheduled for ${classLevel} ${subclassLetter} on ${dayOfWeek} during the requested time`);
       }
     }
 
@@ -333,12 +373,12 @@ const createTimetableService = async (data, res) => {
         teacher,
         dayOfWeek,
         academicYear: currentAcademicYear,
-      });
+      }).select('-periods.attendance');
 
       for (const existing of teacherTimetables) {
         if (isTimeOverlap(startTime, numberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
-          const conflictingSubject = await Subject.findById(existing.subject);
-          return responseStatus(res, 400, 'failed', `Conflict: Teacher is already scheduled for subject ${conflictingSubject.name} on ${dayOfWeek} during the requested time`);
+          const conflictingSubject = await Subject.findById(existing.subject).populate('name');
+          return responseStatus(res, 400, 'failed', `Conflict: Teacher is already scheduled for subject ${conflictingSubject.name?.name || 'Unknown'}) on ${dayOfWeek} during the requested time`);
         }
       }
     }
@@ -346,7 +386,7 @@ const createTimetableService = async (data, res) => {
     const timetable = await Timetable.create({
       classLevel,
       subclassLetter,
-      subject,
+      subject: subjectDoc._id,
       teacher,
       dayOfWeek,
       startTime,
@@ -355,7 +395,20 @@ const createTimetableService = async (data, res) => {
       academicYear: currentAcademicYear,
     });
 
-    return responseStatus(res, 201, 'success', timetable);
+    const populatedTimetable = await Timetable.findById(timetable._id)
+      .select('-periods.attendance') // Exclude attendance from periods
+      .populate('classLevel', 'name section')
+      .populate({
+        path: 'subject',
+        populate: { path: 'name', select: 'name' },
+      })
+      .populate('academicYear', 'name')
+      .populate('teacher', 'firstName lastName');
+
+    const timetableObj = populatedTimetable.toObject();
+    timetableObj.subjectName = populatedTimetable.subject?.name?.name || 'N/A';
+
+    return responseStatus(res, 201, 'success', timetableObj);
   } catch (error) {
     return responseStatus(res, 500, 'failed', `Error creating timetable: ${error.message}`);
   }
@@ -369,7 +422,7 @@ const updateTimetableService = async (timetableId, data, res) => {
     const {
       classLevel,
       subclassLetter,
-      subject,
+      subject: subjectName,
       teacher,
       dayOfWeek,
       startTime,
@@ -387,18 +440,29 @@ const updateTimetableService = async (timetableId, data, res) => {
       return responseStatus(res, 400, 'failed', 'numberOfPeriods must be a positive integer');
     }
 
-    const existingTimetable = await Timetable.findById(timetableId);
+    const existingTimetable = await Timetable.findById(timetableId).select('-periods.attendance');
     if (!existingTimetable) {
       return responseStatus(res, 404, 'failed', 'Timetable not found');
     }
 
     const finalClassLevel = classLevel || existingTimetable.classLevel;
     const finalSubclassLetter = subclassLetter || existingTimetable.subclassLetter;
-    const finalSubject = subject || existingTimetable.subject;
+    let finalSubject = existingTimetable.subject;
+
+    if (subjectName) {
+      const subjectDoc = await findSubjectByName(subjectName);
+      if (!subjectDoc) {
+        return responseStatus(res, 404, 'failed', `Subject ${subjectName} not found`);
+      }
+      if (!validateSubjectAssignment(subjectDoc, finalClassLevel, finalSubclassLetter)) {
+        return responseStatus(res, 400, 'failed', `Subject ${subjectName} is not assigned to ClassLevel ${finalClassLevel} subclass ${finalSubclassLetter}`);
+      }
+      finalSubject = subjectDoc._id;
+    }
+
     const finalStartTime = startTime || existingTimetable.startTime;
     const finalNumberOfPeriods = numberOfPeriods !== undefined ? numberOfPeriods : existingTimetable.numberOfPeriods;
 
-    // Validate time range if startTime or numberOfPeriods is provided
     if (startTime || numberOfPeriods !== undefined) {
       validateTimeRange(finalStartTime, finalNumberOfPeriods);
     }
@@ -413,17 +477,10 @@ const updateTimetableService = async (timetableId, data, res) => {
       return responseStatus(res, 400, 'failed', `Subclass ${finalSubclassLetter} not found for ClassLevel ${finalClassLevel}`);
     }
 
-    if (subject) {
-      const subjectDoc = await Subject.findById(subject);
-      if (!subjectDoc) {
-        return responseStatus(res, 404, 'failed', 'Subject not found');
-      }
-
-      const subjectAssignment = subjectDoc.classLevelSubclasses.find(
-        (cls) => cls.classLevel.toString() === finalClassLevel.toString() && cls.subclassLetter === finalSubclassLetter
-      );
-      if (!subjectAssignment) {
-        return responseStatus(res, 400, 'failed', `Subject ${subjectDoc.name} is not assigned to ClassLevel ${finalClassLevel} subclass ${finalSubclassLetter}`);
+    if (finalSubject && (classLevel || subclassLetter || subjectName)) {
+      const subjectDoc = await Subject.findById(finalSubject).populate('name');
+      if (!validateSubjectAssignment(subjectDoc, finalClassLevel, finalSubclassLetter)) {
+        return responseStatus(res, 400, 'failed', `Subject ${subjectDoc.name?.name || subjectName} is not assigned to ClassLevel ${finalClassLevel} subclass ${finalSubclassLetter}`);
       }
 
       if (teacher) {
@@ -431,8 +488,11 @@ const updateTimetableService = async (timetableId, data, res) => {
         if (!teacherDoc) {
           return responseStatus(res, 404, 'failed', 'Teacher not found');
         }
+        const subjectAssignment = subjectDoc.classLevelSubclasses.find(
+          (cls) => cls.classLevel.toString() === finalClassLevel.toString() && cls.subclassLetter === finalSubclassLetter
+        );
         if (!subjectAssignment.teachers.some((id) => id.toString() === teacher.toString())) {
-          return responseStatus(res, 400, 'failed', `Teacher is not assigned to subject ${subjectDoc.name} for ClassLevel ${finalClassLevel} subclass ${finalSubclassLetter}`);
+          return responseStatus(res, 400, 'failed', `Teacher is not assigned to subject ${subjectDoc.name?.name || subjectName} for ClassLevel ${finalClassLevel} subclass ${finalSubclassLetter}`);
         }
       }
     }
@@ -448,12 +508,12 @@ const updateTimetableService = async (timetableId, data, res) => {
           'classLevelSubclasses.classLevel': finalClassLevel,
           'classLevelSubclasses.subclassLetter': finalSubclassLetter,
         }).distinct('_id') },
-      });
+      }).select('-periods.attendance');
 
       for (const existing of existingTimetables) {
         if (existing.subject.toString() !== finalSubject.toString() && isTimeOverlap(finalStartTime, finalNumberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
-          const conflictingSubject = await Subject.findById(existing.subject);
-          return responseStatus(res, 400, 'failed', `Conflict: Another subject (${conflictingSubject.name}) is scheduled for ${finalClassLevel} ${finalSubclassLetter} on ${dayOfWeek} during the requested time`);
+          const conflictingSubject = await Subject.findById(existing.subject).populate('name');
+          return responseStatus(res, 400, 'failed', `Conflict: Another subject (${conflictingSubject.name?.name || 'Unknown'}) is scheduled for ${finalClassLevel} ${finalSubclassLetter} on ${dayOfWeek} during the requested time`);
         }
       }
 
@@ -463,12 +523,12 @@ const updateTimetableService = async (timetableId, data, res) => {
           dayOfWeek,
           academicYear: currentAcademicYear,
           _id: { $ne: timetableId },
-        });
+        }).select('-periods.attendance');
 
         for (const existing of teacherTimetables) {
           if (isTimeOverlap(finalStartTime, finalNumberOfPeriods, existing.startTime, existing.numberOfPeriods)) {
-            const conflictingSubject = await Subject.findById(existing.subject);
-            return responseStatus(res, 400, 'failed', `Conflict: Teacher is already scheduled for subject ${conflictingSubject.name} on ${dayOfWeek} during the requested time`);
+            const conflictingSubject = await Subject.findById(existing.subject).populate('name');
+            return responseStatus(res, 400, 'failed', `Conflict: Teacher is already scheduled for subject ${conflictingSubject.name?.name || 'Unknown'}) on ${dayOfWeek} during the requested time`);
           }
         }
       }
@@ -486,19 +546,44 @@ const updateTimetableService = async (timetableId, data, res) => {
       academicYear: currentAcademicYear,
     };
 
+    // If numberOfPeriods changes, adjust the periods array
+    if (numberOfPeriods !== undefined && numberOfPeriods !== existingTimetable.numberOfPeriods) {
+      const existingPeriods = (await Timetable.findById(timetableId).select('periods')).periods || [];
+      const newPeriods = Array.from({ length: numberOfPeriods }, (_, index) => {
+        const existing = existingPeriods.find((p) => p.periodIndex === index);
+        return existing || {
+          periodIndex: index,
+          date: new Date(0),
+          attendance: [],
+        };
+      });
+      updateData.periods = newPeriods;
+    }
+
     Object.keys(updateData).forEach((key) => updateData[key] === undefined && delete updateData[key]);
 
     const timetable = await Timetable.findByIdAndUpdate(
       timetableId,
       { $set: updateData },
       { new: true, runValidators: true }
-    );
+    )
+      .select('-periods.attendance') // Exclude attendance from periods
+      .populate('classLevel', 'name section')
+      .populate({
+        path: 'subject',
+        populate: { path: 'name', select: 'name' },
+      })
+      .populate('academicYear', 'name')
+      .populate('teacher', 'firstName lastName');
 
     if (!timetable) {
       return responseStatus(res, 404, 'failed', 'Timetable not found');
     }
 
-    return responseStatus(res, 200, 'success', timetable);
+    const timetableObj = timetable.toObject();
+    timetableObj.subjectName = timetable.subject?.name?.name || 'N/A';
+
+    return responseStatus(res, 200, 'success', timetableObj);
   } catch (error) {
     return responseStatus(res, 500, 'failed', `Error updating timetable: ${error.message}`);
   }
@@ -509,7 +594,7 @@ const updateTimetableService = async (timetableId, data, res) => {
  */
 const deleteTimetableService = async (timetableId, res) => {
   try {
-    const timetable = await Timetable.findByIdAndDelete(timetableId);
+    const timetable = await Timetable.findByIdAndDelete(timetableId).select('-periods.attendance');
     if (!timetable) {
       return responseStatus(res, 404, 'failed', 'Timetable not found');
     }
@@ -524,24 +609,27 @@ const deleteTimetableService = async (timetableId, res) => {
       return responseStatus(res, 400, 'failed', `Subclass ${timetable.subclassLetter} not found`);
     }
 
-    // Extract student IDs, handling both ObjectId and object formats
     const studentIds = subclass.students.map((student) => {
       if (student && typeof student === 'object' && student.id) {
-        return student.id; // Extract ObjectId from { id, amountPaid }
+        return student.id;
       }
-      return student; // Assume it's already an ObjectId
-    }).filter((id) => id && mongoose.Types.ObjectId.isValid(id)); // Filter valid ObjectIds
+      return student;
+    }).filter((id) => id && mongoose.Types.ObjectId.isValid(id));
 
     for (const studentId of studentIds) {
-      console.log('Student ID:', studentId);
       const student = await Student.findById(studentId);
       if (student) {
         const allAttendance = await Timetable.aggregate([
-          { $match: { classLevel: student.classLevelId, subclassLetter: student.currentClassLevel.subclass } },
-          { $unwind: '$periodAttendance' },
-          { $unwind: '$periodAttendance.attendance' },
-          { $match: { 'periodAttendance.attendance.studentId': student._id } },
-          { $project: { status: '$periodAttendance.attendance.status' } },
+          {
+            $match: {
+              classLevel: student.classLevelId,
+              subclassLetter: student.currentClassLevel.subclass,
+            },
+          },
+          { $unwind: '$periods' },
+          { $unwind: '$periods.attendance' },
+          { $match: { 'periods.attendance.studentId': student._id } },
+          { $project: { status: '$periods.attendance.status' } },
         ]);
 
         const totalRecords = allAttendance.length;
@@ -557,51 +645,129 @@ const deleteTimetableService = async (timetableId, res) => {
   }
 };
 
+// services/academic/timetable.service.js
 /**
  * Mark attendance for a timetable period
  */
-const markAttendanceService = async (timetableId, periodIndex, attendanceData, res) => {
+const markAttendanceService = async (timetableId, periodIndex, attendanceData, date, res) => {
+  // Validate res object
+  if (!res || typeof res.status !== 'function' || typeof res.json !== 'function') {
+    throw new Error('Invalid response object');
+  }
+
   try {
-    const timetable = await Timetable.findById(timetableId);
+    const timetable = await Timetable.findById(timetableId)
+      .populate('classLevel', 'name section subclasses')
+      .populate({
+        path: 'subject',
+        populate: { path: 'name', select: 'name' },
+      });
     if (!timetable) {
       return responseStatus(res, 404, 'failed', 'Timetable not found');
     }
 
-    if (periodIndex < 0 || periodIndex >= timetable.numberOfPeriods) {
-      return responseStatus(res, 400, 'failed', 'Invalid period index');
+    if (!Number.isInteger(Number(periodIndex)) || periodIndex < 0 || periodIndex >= timetable.numberOfPeriods) {
+      return responseStatus(res, 400, 'failed', `Invalid period index: ${periodIndex}`);
     }
 
-    const classLevel = await ClassLevel.findById(timetable.classLevel);
+    const classLevel = timetable.classLevel;
     const subclass = classLevel.subclasses.find((sub) => sub.letter === timetable.subclassLetter);
-    const validStudentIds = subclass.students.map((id) => id.toString());
+    if (!subclass) {
+      return responseStatus(res, 400, 'failed', `Subclass ${timetable.subclassLetter} not found`);
+    }
 
-    for (const record of attendanceData) {
-      if (!validStudentIds.includes(record.studentId.toString())) {
-        return responseStatus(res, 400, 'failed', `Student ${record.studentId} is not in subclass ${timetable.subclassLetter}`);
-      }
+    const attendanceDate = date ? new Date(date) : new Date(); // Use current date (August 3, 2025, 2:34 PM WAT)
+    if (isNaN(attendanceDate.getTime())) {
+      return responseStatus(res, 400, 'failed', 'Invalid date format');
+    }
+    const normalizedDate = new Date(attendanceDate.setHours(0, 0, 0, 0));
+
+    // Find existing period
+    const existingPeriod = timetable.periods.find(
+      (p) => p.periodIndex === Number(periodIndex) && p.date.getTime() === normalizedDate.getTime()
+    );
+
+    // Track which students already have attendance marked
+    const existingStudentIds = existingPeriod
+      ? existingPeriod.attendance.map((att) => att.studentId.toString())
+      : [];
+
+    // Filter out students who already have attendance marked
+    const newAttendanceData = attendanceData.filter(
+      (record) => !existingStudentIds.includes(record.studentId.toString())
+    );
+
+    // Validate new attendance data
+    for (const record of newAttendanceData) {
       if (!['Present', 'Absent', 'Late', 'Excused'].includes(record.status)) {
         return responseStatus(res, 400, 'failed', `Invalid status for student ${record.studentId}`);
       }
     }
 
-    timetable.periodAttendance[periodIndex].attendance = attendanceData.map((record) => ({
-      studentId: record.studentId,
-      status: record.status,
-      notes: record.notes,
-      date: new Date(),
-    }));
+    // If no new attendance records to add, return early
+    if (newAttendanceData.length === 0 && existingPeriod) {
+      const populatedTimetable = await Timetable.findById(timetable._id)
+        .select('-periods.attendance')
+        .populate('classLevel', 'name section')
+        .populate({
+          path: 'subject',
+          populate: { path: 'name', select: 'name' },
+        })
+        .populate('academicYear', 'name')
+        .populate('teacher', 'firstName lastName');
+
+      if (!populatedTimetable) {
+        return responseStatus(res, 404, 'failed', 'Timetable not found after update');
+      }
+
+      const timetableObj = populatedTimetable.toObject();
+      timetableObj.subjectName = populatedTimetable.subject?.name?.name || 'N/A';
+      return responseStatus(res, 200, 'success', {
+        message: 'No new attendance records to mark; all students already marked',
+        timetable: timetableObj,
+      });
+    }
+
+    // Update or create period
+    if (existingPeriod) {
+      // Add only new attendance records to existing period
+      existingPeriod.attendance.push(
+        ...newAttendanceData.map((record) => ({
+          studentId: record.studentId,
+          status: record.status,
+          notes: record.notes || '',
+        }))
+      );
+    } else {
+      // Create new period with all provided attendance data
+      timetable.periods.push({
+        periodIndex: Number(periodIndex),
+        date: normalizedDate,
+        attendance: attendanceData.map((record) => ({
+          studentId: record.studentId,
+          status: record.status,
+          notes: record.notes || '',
+        })),
+      });
+    }
 
     await timetable.save();
 
-    for (const record of attendanceData) {
+    // Update attendance rate for affected students
+    for (const record of newAttendanceData) {
       const student = await Student.findById(record.studentId);
       if (student) {
         const allAttendance = await Timetable.aggregate([
-          { $match: { classLevel: student.classLevelId, subclassLetter: student.currentClassLevel.subclass } },
-          { $unwind: '$periodAttendance' },
-          { $unwind: '$periodAttendance.attendance' },
-          { $match: { 'periodAttendance.attendance.studentId': student._id } },
-          { $project: { status: '$periodAttendance.attendance.status' } },
+          {
+            $match: {
+              classLevel: student.classLevelId,
+              subclassLetter: student.currentClassLevel.subclass,
+            },
+          },
+          { $unwind: '$periods' },
+          { $unwind: '$periods.attendance' },
+          { $match: { 'periods.attendance.studentId': student._id } },
+          { $project: { status: '$periods.attendance.status' } },
         ]);
 
         const totalRecords = allAttendance.length;
@@ -611,9 +777,100 @@ const markAttendanceService = async (timetableId, periodIndex, attendanceData, r
       }
     }
 
-    return responseStatus(res, 200, 'success', 'Attendance marked successfully');
+    const populatedTimetable = await Timetable.findById(timetable._id)
+      .select('-periods.attendance')
+      .populate('classLevel', 'name section')
+      .populate({
+        path: 'subject',
+        populate: { path: 'name', select: 'name' },
+      })
+      .populate('academicYear', 'name')
+      .populate('teacher', 'firstName lastName');
+
+    if (!populatedTimetable) {
+      return responseStatus(res, 404, 'failed', 'Timetable not found after update');
+    }
+
+    const timetableObj = populatedTimetable.toObject();
+    timetableObj.subjectName = populatedTimetable.subject?.name?.name || 'N/A';
+
+    return responseStatus(res, 200, 'success', {
+      message: newAttendanceData.length === attendanceData.length
+        ? 'Attendance marked successfully'
+        : `Attendance marked for ${newAttendanceData.length} of ${attendanceData.length} students; others already marked`,
+      timetable: timetableObj,
+    });
   } catch (error) {
+    console.error('Error in markAttendanceService:', error);
     return responseStatus(res, 500, 'failed', `Error marking attendance: ${error.message}`);
+  }
+};
+
+/**
+ * Get attendance for a timetable period
+ */
+const getAttendanceService = async (timetableId, periodIndex, date, res) => {
+  try {
+    // Validate timetable existence
+    const timetable = await Timetable.findById(timetableId)
+      .select('periods numberOfPeriods classLevel subclassLetter subject dayOfWeek startTime endTime location academicYear teacher')
+      .populate('classLevel', 'name section')
+      .populate({
+        path: 'subject',
+        populate: { path: 'name', select: 'name' },
+      })
+      .populate('academicYear', 'name')
+      .populate('teacher', 'firstName lastName');
+
+    if (!timetable) {
+      return responseStatus(res, 404, 'failed', 'Timetable not found');
+    }
+
+    // Validate periodIndex
+    if (!Number.isInteger(Number(periodIndex)) || periodIndex < 0 || periodIndex >= timetable.numberOfPeriods) {
+      return responseStatus(res, 400, 'failed', `Invalid period index: ${periodIndex}`);
+    }
+
+    // Filter periods by periodIndex and optional date
+    let periods = timetable.periods.filter((p) => p.periodIndex === Number(periodIndex));
+
+    if (date) {
+      const parsedDate = new Date(date);
+      if (isNaN(parsedDate.getTime())) {
+        return responseStatus(res, 400, 'failed', 'Invalid date format');
+      }
+      const normalizedDate = new Date(parsedDate.setHours(0, 0, 0, 0));
+      periods = periods.filter((p) => p.date.getTime() === normalizedDate.getTime());
+    }
+
+    // Populate student details for attendance
+    const populatedAttendance = await Promise.all(
+      periods.map(async (period) => {
+        const periodObj = {
+          periodIndex: period.periodIndex,
+          date: period.date,
+          attendance: await Promise.all(
+            period.attendance.map(async (record) => {
+              const student = await Student.findById(record.studentId).select('firstName lastName');
+              return {
+                ...record.toObject(),
+                student: student ? { _id: student._id, firstName: student.firstName, lastName: student.lastName } : null,
+              };
+            })
+          ),
+        };
+        return periodObj;
+      })
+    );
+
+    // Transform timetable data for response
+    const timetableObj = timetable.toObject();
+    delete timetableObj.periods; // Remove periods from timetable object
+    timetableObj.subjectName = timetable.subject?.name?.name || 'N/A';
+
+    return responseStatus(res, 200, 'success', { timetable: timetableObj, attendance: populatedAttendance });
+  } catch (error) {
+    return responseStatus(res, 500, 'failed', `Error fetching attendance: ${error.message}`);
   }
 };
 
@@ -625,4 +882,5 @@ module.exports = {
   updateTimetableService,
   deleteTimetableService,
   markAttendanceService,
+  getAttendanceService,
 };

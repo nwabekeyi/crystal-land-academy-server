@@ -8,7 +8,8 @@ const {
   signUpClassDataService,
   getClassLevelsAndSubclassesForTeacherService,
   assignTeachersToClassService,
-  addSubclassToClassLevelService
+  addSubclassToClassLevelService,
+  getStudentsInSubclassService
 } = require("../../services/academic/class.service");
 
 /**
@@ -124,6 +125,15 @@ exports.assignTeachersToClassController = async (req, res) => {
 exports.addSubclassToClassLevelController = async (req, res) => {
   try {
     await addSubclassToClassLevelService(req.body, req.params.id, req.userAuth.id, res);
+  } catch (error) {
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+exports.getStudentsInSubclassController = async (req, res) => {
+  try {
+    const { classLevelId, subclassLetter } = req.params;
+    await getStudentsInSubclassService(classLevelId, subclassLetter, res);
   } catch (error) {
     responseStatus(res, 400, "failed", error.message);
   }

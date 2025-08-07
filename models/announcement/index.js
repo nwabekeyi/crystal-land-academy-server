@@ -1,4 +1,3 @@
-// models/announcement.js
 const mongoose = require('mongoose');
 
 const announcementSchema = new mongoose.Schema({
@@ -19,6 +18,12 @@ const announcementSchema = new mongoose.Schema({
   createdBy: {
     type: mongoose.Schema.Types.ObjectId,
     required: true,
+    refPath: 'createdByModel', // Dynamic reference
+  },
+  createdByModel: {
+    type: String,
+    required: true,
+    enum: ['Admin', 'Teacher'], // Model names (case-sensitive)
   },
   type: {
     type: String,

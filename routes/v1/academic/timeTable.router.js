@@ -1,3 +1,4 @@
+// routes/academic/timetable.routes.js
 const express = require('express');
 const {
   getTimetablesController,
@@ -7,6 +8,7 @@ const {
   updateTimetableController,
   deleteTimetableController,
   markAttendanceController,
+  getAttendanceController,
 } = require('../../../controllers/academic/timeTable.controller');
 const isLoggedIn = require('../../../middlewares/isLoggedIn');
 const isAdmin = require('../../../middlewares/isAdmin');
@@ -39,6 +41,7 @@ router
 
 router
   .route('/time-table/:timetableId/attendance')
-  .put(isLoggedIn, isTeacher, markAttendanceController);
+  .put(isLoggedIn, isTeacher, markAttendanceController)
+  .get(isLoggedIn, isTeacher, getAttendanceController);
 
 module.exports = router;
