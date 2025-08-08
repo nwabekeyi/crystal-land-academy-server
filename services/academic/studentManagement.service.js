@@ -1,4 +1,3 @@
-// services/academic/studentManagement.service.js
 const ClassLevel = require("../../models/Academic/class.model");
 const Student = require("../../models/Students/students.model");
 const Comment = require("../../models/Students/studentComment.model");
@@ -85,10 +84,28 @@ exports.getStudentsByTeacherAndClassService = async (teacherId, section, classNa
 
     const studentIds = targetSubclass.students.map((s) => s.id);
 
-    // Simplified Student query
+    // Fetch students
     const students = await Student.find({
       _id: { $in: studentIds },
-    }).select("studentId firstName lastName email phoneNumber profilePictureUrl activityRate");
+    }).select("studentId firstName lastName email phoneNumber profilePictureUrl").lean();
+
+    // Fetch latest comments for the students in the current class and term
+    const comments = await Comment.find({
+      studentId: { $in: studentIds },
+      classLevelId: classLevel._id,
+      academicTermId,
+    })
+      .sort({ createdAt: -1 }) // Sort by newest first
+      .select("studentId comment createdAt")
+      .lean();
+
+    // Map comments to students (latest comment per student)
+    const commentMap = {};
+    comments.forEach((c) => {
+      if (!commentMap[c.studentId.toString()]) {
+        commentMap[c.studentId.toString()] = c.comment;
+      }
+    });
 
     return responseStatus(res, 200, "success", {
       academicYear: academicYear.name,
@@ -99,13 +116,14 @@ exports.getStudentsByTeacherAndClassService = async (teacherId, section, classNa
       classLevelId: classLevel._id,
       students: students.map((s) => ({
         studentId: s.studentId,
+        id: s._id,
         firstName: s.firstName,
         lastName: s.lastName,
         email: s.email,
         phoneNumber: s.phoneNumber,
         profilePicture: s.profilePictureUrl,
-        activityRate: s.activityRate || "0%",
         classId: classLevel._id,
+        comment: commentMap[s._id.toString()] || undefined, // Include latest comment
       })),
     });
   } catch (error) {
@@ -161,24 +179,27 @@ exports.postStudentCommentService = async (teacherId, studentId, classLevelId, c
       return responseStatus(res, 403, "error", "Teacher is not assigned to this class");
     }
 
+    // Look up student by custom studentId
+    const student = await Student.findOne({ studentId }).lean();
+    if (!student) {
+      return responseStatus(res, 404, "error", `Student with ID ${studentId} not found`);
+    }
+
+    // Check if student is in the class using Mongoose _id
     const isStudentInClass = classLevel.subclasses.some((sub) =>
-      sub.students.some((s) => s.id.toString() === studentId)
+      sub.students.some((s) => s.id.toString() === student._id.toString())
     );
     if (!isStudentInClass) {
       return responseStatus(res, 404, "error", "Student is not in this class");
-    }
-
-    const student = await Student.findById(studentId);
-    if (!student) {
-      return responseStatus(res, 404, "error", "Student not found");
     }
 
     if (!commentText || commentText.trim().length === 0) {
       return responseStatus(res, 400, "error", "Comment text is required");
     }
 
+    // Create comment using Mongoose _id
     const comment = await Comment.create({
-      studentId,
+      studentId: student._id,
       teacherId,
       classLevelId,
       academicTermId,
