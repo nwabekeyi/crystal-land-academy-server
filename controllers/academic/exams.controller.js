@@ -1,15 +1,24 @@
+// controllers/academic/exams.controller.js
 const {
   teacherCreateExamService,
   teacherGetAllExamsService,
   teacherGetExamByIdService,
   teacherUpdateExamService,
   teacherDeleteExamService,
+  teacherAddQuestionToExamService, // New
+  teacherGetQuestionsByExamService, // New
+  teacherUpdateQuestionService, // New
+  teacherDeleteQuestionService, // New
   adminCreateExamService,
   adminGetAllExamsService,
   adminGetExamByIdService,
   adminUpdateExamService,
   adminDeleteExamService,
   adminApproveExamService,
+  adminAddQuestionToExamService,
+  adminGetQuestionsByExamService,
+  adminUpdateQuestionService,
+  adminDeleteQuestionService,
 } = require("../../services/academic/exams.service");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
@@ -20,8 +29,9 @@ const responseStatus = require("../../handlers/responseStatus.handler");
  */
 exports.teacherCreateExamController = async (req, res) => {
   try {
-    const result = await teacherCreateExamService(req.body, req.userAuth.id);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await teacherCreateExamService(res, req.body, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 201, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }
@@ -41,7 +51,8 @@ exports.teacherGetAllExamsController = async (req, res) => {
       academicYear: req.query.academicYear,
       academicTerm: req.query.academicTerm,
     };
-    const result = await teacherGetAllExamsService(req.userAuth.id, filters);
+    const result = await teacherGetAllExamsService(res, req.userAuth.id, filters);
+    if (result === null) return; // Error handled in service
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
@@ -55,8 +66,9 @@ exports.teacherGetAllExamsController = async (req, res) => {
  */
 exports.teacherGetExamByIdController = async (req, res) => {
   try {
-    const result = await teacherGetExamByIdService(req.params.examId, req.userAuth.id);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await teacherGetExamByIdService(res, req.params.examId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }
@@ -69,8 +81,9 @@ exports.teacherGetExamByIdController = async (req, res) => {
  */
 exports.teacherUpdateExamController = async (req, res) => {
   try {
-    const result = await teacherUpdateExamService(req.body, req.params.examId, req.userAuth.id);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await teacherUpdateExamService(res, req.body, req.params.examId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }
@@ -83,8 +96,75 @@ exports.teacherUpdateExamController = async (req, res) => {
  */
 exports.teacherDeleteExamController = async (req, res) => {
   try {
-    const result = await teacherDeleteExamService(req.params.examId, req.userAuth.id);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await teacherDeleteExamService(res, req.params.examId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Add question to an exam (Teacher)
+ * @route POST /api/v1/teacher/exams/:examId/questions
+ * @access Private (Teacher Only)
+ */
+exports.teacherAddQuestionToExamController = async (req, res) => {
+  try {
+    const result = await teacherAddQuestionToExamService(res, req.params.examId, req.body, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 201, "success", result);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Get all questions for an exam (Teacher)
+ * @route GET /api/v1/teacher/exams/:examId/questions
+ * @access Private (Teacher Only)
+ */
+exports.teacherGetQuestionsByExamController = async (req, res) => {
+  try {
+    const result = await teacherGetQuestionsByExamService(res, req.params.examId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Update a question in an exam (Teacher)
+ * @route PATCH /api/v1/teacher/exams/:examId/questions/:questionId
+ * @access Private (Teacher Only)
+ */
+exports.teacherUpdateQuestionController = async (req, res) => {
+  try {
+    const result = await teacherUpdateQuestionService(
+      res,
+      req.params.examId,
+      req.params.questionId,
+      req.body,
+      req.userAuth.id
+    );
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Delete a question from an exam (Teacher)
+ * @route DELETE /api/v1/teacher/exams/:examId/questions/:questionId
+ * @access Private (Teacher Only)
+ */
+exports.teacherDeleteQuestionController = async (req, res) => {
+  try {
+    const result = await teacherDeleteQuestionService(res, req.params.examId, req.params.questionId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }
@@ -97,8 +177,9 @@ exports.teacherDeleteExamController = async (req, res) => {
  */
 exports.adminCreateExamController = async (req, res) => {
   try {
-    const result = await adminCreateExamService(req.body, req.userAuth.id);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await adminCreateExamService(res, req.body, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 201, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }
@@ -119,7 +200,8 @@ exports.adminGetAllExamsController = async (req, res) => {
       academicTerm: req.query.academicTerm,
       createdBy: req.query.createdBy,
     };
-    const result = await adminGetAllExamsService(req.userAuth.id, filters);
+    const result = await adminGetAllExamsService(res, req.userAuth.id, filters);
+    if (result === null) return; // Error handled in service
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
@@ -133,8 +215,9 @@ exports.adminGetAllExamsController = async (req, res) => {
  */
 exports.adminGetExamByIdController = async (req, res) => {
   try {
-    const result = await adminGetExamByIdService(req.params.examId, req.userAuth.id);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await adminGetExamByIdService(res, req.params.examId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }
@@ -147,8 +230,9 @@ exports.adminGetExamByIdController = async (req, res) => {
  */
 exports.adminUpdateExamController = async (req, res) => {
   try {
-    const result = await adminUpdateExamService(req.body, req.params.examId, req.userAuth.id);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await adminUpdateExamService(res, req.body, req.params.examId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }
@@ -161,8 +245,9 @@ exports.adminUpdateExamController = async (req, res) => {
  */
 exports.adminDeleteExamController = async (req, res) => {
   try {
-    const result = await adminDeleteExamService(req.params.examId, req.userAuth.id);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await adminDeleteExamService(res, req.params.examId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }
@@ -176,8 +261,75 @@ exports.adminDeleteExamController = async (req, res) => {
 exports.adminApproveExamController = async (req, res) => {
   try {
     const { startDate, startTime } = req.body;
-    const result = await adminApproveExamService(req.params.examId, req.userAuth.id, startDate, startTime);
-    responseStatus(res, result.statusCode, result.status, result.data);
+    const result = await adminApproveExamService(res, req.params.examId, req.userAuth.id, startDate, startTime);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Add question to an exam (Admin)
+ * @route POST /api/v1/admin/exams/:examId/questions
+ * @access Private (Admin Only)
+ */
+exports.adminAddQuestionToExamController = async (req, res) => {
+  try {
+    const result = await adminAddQuestionToExamService(res, req.params.examId, req.body, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 201, "success", result);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Get all questions for an exam (Admin)
+ * @route GET /api/v1/admin/exams/:examId/questions
+ * @access Private (Admin Only)
+ */
+exports.adminGetQuestionsByExamController = async (req, res) => {
+  try {
+    const result = await adminGetQuestionsByExamService(res, req.params.examId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Update a question in an exam (Admin)
+ * @route PATCH /api/v1/admin/exams/:examId/questions/:questionId
+ * @access Private (Admin Only)
+ */
+exports.adminUpdateQuestionController = async (req, res) => {
+  try {
+    const result = await adminUpdateQuestionService(
+      res,
+      req.params.examId,
+      req.params.questionId,
+      req.body,
+      req.userAuth.id
+    );
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
+  } catch (error) {
+    responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Delete a question from an exam (Admin)
+ * @route DELETE /api/v1/admin/exams/:examId/questions/:questionId
+ * @access Private (Admin Only)
+ */
+exports.adminDeleteQuestionController = async (req, res) => {
+  try {
+    const result = await adminDeleteQuestionService(res, req.params.examId, req.params.questionId, req.userAuth.id);
+    if (result === null) return; // Error handled in service
+    responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
   }

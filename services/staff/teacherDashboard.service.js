@@ -6,6 +6,7 @@ const AcademicTerm = require('../../models/Academic/academicTerm.model');
 const AcademicYear = require('../../models/Academic/academicYear.model');
 const Timetable = require('../../models/Academic/timeTable.model');
 const Subject = require('../../models/Academic/subject.model');
+const Assignment = require('../../models/Academic/assignment.model');
 
 const getNextClass = async (teacherId) => {
   try {
@@ -15,9 +16,10 @@ const getNextClass = async (teacherId) => {
       return null;
     }
 
-    const now = new Date();
+    const now = new Date('2025-08-09T19:09:00.000+01:00'); // Current date and time (WAT)
     const currentDay = now.toLocaleString('en-US', { weekday: 'long' });
     const currentTime = now.toTimeString().slice(0, 5); // HH:mm format
+    const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
     // Find subjects where the teacher is assigned
     const subjects = await Subject.find({
@@ -46,86 +48,132 @@ const getNextClass = async (teacherId) => {
       return null;
     }
 
-    // Find the next timetable entry
-    const timetable = await Timetable.findOne({
+    // Find all timetable entries for the teacher's subjects
+    const timetables = await Timetable.find({
       $or: classSubclasses.map(({ classLevel, subclassLetter, subject }) => ({
         classLevel,
         subclassLetter,
         subject,
         academicYear: currentAcademicYear._id,
-        dayOfWeek: currentDay,
-        startTime: { $gt: currentTime },
       })),
-    })
-      .sort({ startTime: 1 }) // Get the earliest startTime after current time
-      .populate('subject', 'name');
+    }).populate('subject', 'name');
 
-    if (!timetable) {
+    if (!timetables || timetables.length === 0) {
       return null;
     }
 
-    return {
-      subject: timetable.subject?.name || 'Unknown',
-      date: now.toISOString().split('T')[0],
-      time: timetable.startTime,
-      location: timetable.location,
-    };
+    // Calculate the next class
+    let earliestClass = null;
+    let minTimeDiff = Infinity;
+
+    for (const timetable of timetables) {
+      const dayIndex = daysOfWeek.indexOf(timetable.dayOfWeek);
+      if (dayIndex === -1) continue;
+
+      // Calculate the next occurrence of this day
+      const currentDayIndex = daysOfWeek.indexOf(currentDay);
+      let daysUntilNext = (dayIndex - currentDayIndex + 7) % 7;
+      if (daysUntilNext === 0 && timetable.startTime <= currentTime) {
+        daysUntilNext = 7; // If today and time has passed, look for next week
+      }
+
+      const nextDate = new Date(now);
+      nextDate.setDate(now.getDate() + daysUntilNext);
+      nextDate.setHours(
+        parseInt(timetable.startTime.split(':')[0]),
+        parseInt(timetable.startTime.split(':')[1]),
+        0,
+        0
+      );
+
+      const timeDiff = nextDate - now;
+      if (timeDiff > 0 && timeDiff < minTimeDiff) {
+        minTimeDiff = timeDiff;
+        earliestClass = {
+          subject: timetable.subject?.name || 'Unknown',
+          date: nextDate.toISOString().split('T')[0],
+          time: timetable.startTime,
+          location: timetable.location,
+        };
+      }
+    }
+
+    return earliestClass;
   } catch (error) {
     console.error('Error in getNextClass:', error);
     return null;
   }
 };
 
-const getStudentPerformance = async (classLevels) => {
-  // If no classLevels, return empty arrays
-  if (!classLevels || !classLevels.length) {
+const getStudentPerformance = async (classLevels, teacherId) => {
+  try {
+    if (!classLevels || !classLevels.length) {
+      return { topStudents: [], leastActiveStudents: [] };
+    }
+
+    // Get all students in the teacher's classes
+    const studentIds = classLevels.flatMap((cls) =>
+      cls.subclasses.flatMap((sub) => sub.students.map((s) => s.id))
+    );
+    const students = await Student.find({ _id: { $in: studentIds } });
+
+    // Get timetable entries for the teacher's subjects
+    const subjects = await Subject.find({
+      'classLevelSubclasses.teachers': teacherId,
+    }).select('_id');
+    const subjectIds = subjects.map((s) => s._id);
+    const timetables = await Timetable.find({
+      subject: { $in: subjectIds },
+      classLevel: { $in: classLevels.map((cls) => cls._id) },
+    });
+
+    // Calculate attendance rate for each student
+    const studentPerformance = [];
+    for (const student of students) {
+      let totalPresent = 0;
+      let totalPeriods = 0;
+
+      for (const timetable of timetables) {
+        for (const period of timetable.periods) {
+          if (period.date.getTime() === 0) continue; // Skip placeholder periods
+          totalPeriods++;
+          const attendance = period.attendance.find(
+            (a) => a.studentId.toString() === student._id.toString()
+          );
+          if (attendance && attendance.status === 'Present') {
+            totalPresent++;
+          }
+        }
+      }
+
+      const attendanceRate = totalPeriods > 0 ? (totalPresent / totalPeriods) * 100 : 0;
+      studentPerformance.push({
+        firstName: student.firstName,
+        lastName: student.lastName,
+        profilePicture: student.profilePictureUrl || '',
+        attendanceRate,
+      });
+    }
+
+    // Sort for top and least active students
+    const topStudents = studentPerformance
+      .sort((a, b) => b.attendanceRate - a.attendanceRate)
+      .slice(0, 3);
+    const leastActiveStudents = studentPerformance
+      .sort((a, b) => a.attendanceRate - b.attendanceRate)
+      .slice(0, 3);
+
+    return { topStudents, leastActiveStudents };
+  } catch (error) {
+    console.error('Error in getStudentPerformance:', error);
     return { topStudents: [], leastActiveStudents: [] };
   }
-
-  const students = [];
-  for (const classLevel of classLevels) {
-    for (const studentId of classLevel.students) {
-      const student = await Student.findById(studentId);
-      if (student) {
-        students.push({
-          ...student.toObject(),
-          performanceScore: Math.floor(Math.random() * (100 - 60) + 60), // Mock data
-          activityRate: Math.floor(Math.random() * (100 - 60) + 60), // Mock data
-        });
-      }
-    }
-  }
-
-  // Sort for top and least active students
-  const topStudents = students
-    .sort((a, b) => b.performanceScore - a.performanceScore)
-    .slice(0, 3)
-    .map((s) => ({
-      firstName: s.firstName,
-      lastName: s.lastName,
-      profilePicture: s.profilePictureUrl || '',
-      performanceScore: s.performanceScore,
-    }));
-
-  const leastActiveStudents = students
-    .sort((a, b) => a.activityRate - a.activityRate)
-    .slice(0, 3)
-    .map((s) => ({
-      firstName: s.firstName,
-      lastName: s.lastName,
-      profilePicture: s.profilePictureUrl || '',
-      activityRate: s.activityRate,
-    }));
-
-  return { topStudents, leastActiveStudents };
 };
 
 const getTeacherDashboardData = async (teacherId) => {
   try {
     // Fetch teacher details
-    const teacher = await Teacher.findById(teacherId)
-      .populate('subject')
-      .populate('teachingAssignments');
+    const teacher = await Teacher.findById(teacherId);
     if (!teacher) throw new Error('Teacher not found');
 
     // Get current academic year and term
@@ -144,7 +192,7 @@ const getTeacherDashboardData = async (teacherId) => {
     // Calculate term progress
     const termStart = new Date(currentSubTerm.startDate);
     const termEnd = new Date(currentSubTerm.endDate);
-    const now = new Date();
+    const now = new Date('2025-08-09T19:09:00.000+01:00'); // Current date and time (WAT)
     const totalDays = (termEnd - termStart) / (1000 * 60 * 60 * 24);
     const daysPassed = (now - termStart) / (1000 * 60 * 60 * 24);
     const termProgress = Math.min(Math.round((daysPassed / totalDays) * 100), 100);
@@ -155,21 +203,72 @@ const getTeacherDashboardData = async (teacherId) => {
       academicYear: currentAcademicYear._id,
     }).populate('students');
 
-    // Calculate student attendance (simplified: assume 90% if classes exist, 0% otherwise)
-    const studentAttendance = classLevels.length ? 90 : 0; // Replace with actual logic if available
+    // Calculate student attendance rate
+    let studentAttendance = 0;
+    if (classLevels.length > 0) {
+      const subjects = await Subject.find({
+        'classLevelSubclasses.teachers': teacherId,
+      }).select('_id');
+      const subjectIds = subjects.map((s) => s._id);
+      const timetables = await Timetable.find({
+        subject: { $in: subjectIds },
+        classLevel: { $in: classLevels.map((cls) => cls._id) },
+        academicYear: currentAcademicYear._id,
+      });
 
-    // Calculate assignment submission rate (simplified: assume 85% if classes exist, 0% otherwise)
-    const assignmentSubmissionRate = classLevels.length ? { totalAssignmentRate: 85 } : { totalAssignmentRate: 0 }; // Replace with actual logic
+      let totalPresent = 0;
+      let totalPossibleAttendance = 0;
 
-    // Find next class from timetable
+      const studentIds = classLevels.flatMap((cls) =>
+        cls.subclasses.flatMap((sub) => sub.students.map((s) => s.id))
+      );
+      const uniqueStudentIds = [...new Set(studentIds.map(String))];
+
+      for (const timetable of timetables) {
+        for (const period of timetable.periods) {
+          if (period.date.getTime() === 0) continue; // Skip placeholder periods
+          totalPossibleAttendance += uniqueStudentIds.length;
+          period.attendance.forEach((att) => {
+            if (att.status === 'Present') {
+              totalPresent++;
+            }
+          });
+        }
+      }
+
+      studentAttendance = totalPossibleAttendance > 0 ? (totalPresent / totalPossibleAttendance) * 100 : 0;
+    }
+
+    // Calculate assignment submission rate
+    let assignmentSubmissionRate = { totalAssignmentRate: 0 };
+    if (classLevels.length > 0) {
+      const assignments = await Assignment.find({ teacherId });
+      const studentIds = classLevels.flatMap((cls) =>
+        cls.subclasses.flatMap((sub) => sub.students.map((s) => s.id))
+      );
+      const uniqueStudentIds = [...new Set(studentIds.map(String))];
+
+      let totalSubmissions = 0;
+      let totalPossibleSubmissions = assignments.length * uniqueStudentIds.length;
+
+      assignments.forEach((assignment) => {
+        totalSubmissions += assignment.submissions.filter((s) => s.submitted).length;
+      });
+
+      assignmentSubmissionRate.totalAssignmentRate = totalPossibleSubmissions > 0
+        ? (totalSubmissions / totalPossibleSubmissions) * 100
+        : 0;
+    }
+
+    // Find next class
     const nextClass = await getNextClass(teacherId);
 
     // Get top and least active students
-    const { topStudents, leastActiveStudents } = await getStudentPerformance(classLevels);
+    const { topStudents, leastActiveStudents } = await getStudentPerformance(classLevels, teacherId);
 
     return {
       termProgress,
-      studentAttendance,
+      studentAttendance: Math.round(studentAttendance),
       assignmentSubmissionRate,
       nextClass,
       topStudents,
@@ -178,6 +277,7 @@ const getTeacherDashboardData = async (teacherId) => {
       error: null,
     };
   } catch (error) {
+    console.error('Error in getTeacherDashboardData:', error);
     return { loading: false, error: error.message };
   }
 };

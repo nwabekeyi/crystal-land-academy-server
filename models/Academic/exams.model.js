@@ -1,3 +1,4 @@
+// models/Academic/exams.model.js
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 
@@ -20,15 +21,17 @@ const examSchema = new mongoose.Schema(
     passMark: {
       type: Number,
       required: true,
+      min: [0, "Pass mark cannot be negative"],
     },
     totalMark: {
       type: Number,
       required: true,
+      min: [0, "Total mark cannot be negative"],
+      max: [100, "Total mark cannot exceed 100"],
     },
     duration: {
       type: String,
       required: true,
-      default: "30 minutes",
     },
     examDate: {
       type: Date,
@@ -38,14 +41,6 @@ const examSchema = new mongoose.Schema(
     examTime: {
       type: String,
       required: true,
-    },
-    startDate: {
-      type: Date,
-      required: false,
-    },
-    startTime: {
-      type: String,
-      required: false,
     },
     examType: {
       type: String,
@@ -87,6 +82,35 @@ const examSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+// Pre-save middleware to validate passMark <= totalMark
+examSchema.pre("save", function (next) {
+  if (this.passMark > this.totalMark) {
+    const error = new Error("Pass mark cannot exceed total mark");
+    return next(error);
+  }
+  next();
+});
+
+// Pre-update middleware to validate passMark <= totalMark for updates
+examSchema.pre(["updateOne", "findOneAndUpdate"], function (next) {
+  const update = this.getUpdate();
+  const passMark = update.passMark !== undefined ? update.passMark : this._update.$set?.passMark;
+  const totalMark = update.totalMark !== undefined ? update.totalMark : this._update.$set?.totalMark;
+
+  if (passMark !== undefined && totalMark !== undefined && passMark > totalMark) {
+    const error = new Error("Pass mark cannot exceed total mark");
+    return next(error);
+  }
+  next();
+});
+
+// Pre-remove hook to delete associated questions
+examSchema.pre("remove", async function (next) {
+  const Question = require("./question.model");
+  await Question.deleteMany({ _id: { $in: this.questions } });
+  next();
+});
 
 const Exam = mongoose.model("Exam", examSchema);
 module.exports = Exam;

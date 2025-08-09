@@ -37,39 +37,54 @@ const getStudentDashboardData = async (studentId) => {
     }
 
     // Calculate session progress
-    const today = new Date('2025-07-23T14:39:00+01:00'); // Fixed to 02:39 PM WAT, July 23, 2025
+    const today = new Date('2025-08-09T19:18:00+01:00'); // Current date: Saturday, August 9, 2025, 7:18 PM WAT
     const yearStart = new Date(academicYear.fromYear);
     const yearEnd = new Date(academicYear.toYear);
     const totalDays = (yearEnd - yearStart) / (1000 * 60 * 60 * 24);
     const daysPassed = (today - yearStart) / (1000 * 60 * 60 * 24);
     const sessionProgress = totalDays > 0 && daysPassed >= 0 ? Math.min(Math.round((daysPassed / totalDays) * 100), 100) : 0;
 
-    // Calculate term attendance using Timetable.periodAttendance
-    const timetableRecords = await Timetable.find({
-      classLevel: student.classLevelId,
-      subclassLetter: student.currentClassLevel.subclass,
-      academicYear: academicYear._id,
-      'periodAttendance.attendance.date': { $gte: currentTerm.startDate, $lte: currentTerm.endDate },
-    });
+    // Get student’s subjects from ClassLevel
+    const classLevel = await ClassLevel.findById(student.classLevelId);
+    if (!classLevel) {
+      return { error: 'Class level not found' };
+    }
+    let studentSubjects = [];
+    if (['SS 1', 'SS 2', 'SS 3'].includes(classLevel.name)) {
+      const subclass = classLevel.subclasses.find((sc) => sc.letter === student.currentClassLevel.subclass);
+      if (subclass) {
+        studentSubjects = subclass.subjects.map((s) => s.subject);
+      }
+    } else {
+      studentSubjects = classLevel.subjects || [];
+    }
 
-    const totalClasses = timetableRecords.reduce(
-      (sum, tt) => sum + tt.periodAttendance.reduce((acc, period) => acc + period.attendance.length, 0),
-      0
-    );
-    const attendedClasses = timetableRecords.reduce(
-      (sum, tt) =>
-        sum +
-        tt.periodAttendance.reduce(
-          (acc, period) =>
-            acc +
-            period.attendance.filter(
-              (att) => att.studentId.toString() === studentId.toString() && att.status === 'Present'
-            ).length,
-          0
-        ),
-      0
-    );
-    const termAttendance = totalClasses > 0 ? Math.round((attendedClasses / totalClasses) * 100) : 0;
+    // Calculate term attendance
+    let termAttendance = 0;
+    if (studentSubjects.length > 0) {
+      const timetableRecords = await Timetable.find({
+        classLevel: student.classLevelId,
+        subclassLetter: student.currentClassLevel.subclass,
+        subject: { $in: studentSubjects },
+        academicYear: academicYear._id,
+        'periods.date': { $gte: currentTerm.startDate, $lte: currentTerm.endDate },
+      });
+
+      let totalAttendanceRecords = 0;
+      let presentCount = 0;
+
+      for (const tt of timetableRecords) {
+        for (const period of tt.periods) {
+          if (period.date.getTime() === 0) continue; // Skip placeholder periods
+          totalAttendanceRecords += period.attendance.length;
+          presentCount += period.attendance.filter(
+            (att) => att.studentId.toString() === studentId.toString() && att.status === 'Present'
+          ).length;
+        }
+      }
+
+      termAttendance = totalAttendanceRecords > 0 ? Math.round((presentCount / totalAttendanceRecords) * 100) : 0;
+    }
 
     // Fetch fee status
     const payment = await StudentPayment.findOne({
@@ -96,15 +111,14 @@ const getStudentDashboardData = async (studentId) => {
 
     // Fetch next class
     let nextClass = null;
-    const classLevel = await ClassLevel.findById(student.classLevelId);
-    
     if (classLevel) {
-      const now = new Date('2025-07-23T14:39:00+01:00'); // 02:39 PM WAT, July 23, 2025
+      const now = new Date('2025-08-09T19:18:00+01:00'); // 7:18 PM WAT, August 9, 2025
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
       const currentDayIndex = daysOfWeek.indexOf(now.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' }));
       const timetables = await Timetable.find({
         classLevel: student.classLevelId,
         subclassLetter: student.currentClassLevel.subclass,
+        subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         dayOfWeek: { $in: daysOfWeek },
       }).populate('subject');
@@ -145,14 +159,14 @@ const getStudentDashboardData = async (studentId) => {
     // Fetch missed classes
     const missedClasses = [];
     if (classLevel) {
-      const weekStart = new Date('2025-07-21T00:00:00+01:00'); // Monday, July 21, 2025
+      const weekStart = new Date('2025-08-04T00:00:00+01:00'); // Monday, August 4, 2025
       const timetables = await Timetable.find({
         classLevel: student.currentClassLevel.classLevelId,
         subclassLetter: student.currentClassLevel.subclass,
+        subject: { $in: studentSubjects },
         academicYear: academicYear._id,
-        dayOfWeek: { $in: ['Monday', 'Tuesday', 'Wednesday'] }, // Up to today (Wednesday)
+        dayOfWeek: { $in: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] },
       }).populate('subject');
-      console.log('Missed classes timetables:', JSON.stringify(timetables, null, 2)); // Debug log
       for (const tt of timetables) {
         const classDate = getNextOccurrence(tt.dayOfWeek, tt.startTime, weekStart);
         if (classDate < today) {
@@ -164,7 +178,8 @@ const getStudentDashboardData = async (studentId) => {
           const classEnd = new Date(classDate);
           const [endHours, endMinutes] = tt.endTime.split(':').map(Number);
           classEnd.setHours(endHours, endMinutes, 0, 0);
-          for (const period of tt.periodAttendance) {
+          for (const period of tt.periods) {
+            if (period.date.getTime() === 0 || period.date > currentTerm.endDate || period.date < currentTerm.startDate) continue;
             const attendance = period.attendance.find(
               (att) => att.studentId.toString() === studentId.toString()
             );
@@ -185,11 +200,12 @@ const getStudentDashboardData = async (studentId) => {
     // Fetch timetable with attendance
     const timetable = [];
     if (classLevel) {
-      const weekStart = new Date('2025-07-21T00:00:00+01:00'); // Monday, July 21, 2025
+      const weekStart = new Date('2025-08-04T00:00:00+01:00'); // Monday, August 4, 2025
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
       const timetables = await Timetable.find({
         classLevel: student.currentClassLevel.classLevelId,
         subclassLetter: student.currentClassLevel.subclass,
+        subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         dayOfWeek: { $in: daysOfWeek },
       }).populate('subject');
@@ -206,7 +222,7 @@ const getStudentDashboardData = async (studentId) => {
           const subjectDoc = await Subject.findById(tt.subject.name);
           subjectName = subjectDoc?.name || 'Unknown';
         }
-        const attendance = tt.periodAttendance
+        const attendance = tt.periods
           .flatMap((period) =>
             period.attendance
               .filter((att) => att.studentId.toString() === studentId.toString() && att.status === 'Present')
@@ -222,22 +238,22 @@ const getStudentDashboardData = async (studentId) => {
     }
 
     return {
-        currentAcademicYear: {
-          _id: academicYear._id,
-          name: academicYear.name,
-          fromYear: academicYear.fromYear,
-          toYear: academicYear.toYear,
-          isCurrent: academicYear.isCurrent,
-        },
-        sessionProgress,
-        termAttendance,
-        feeStatus,
-        nextClass,
-        missedClasses,
-        subjectPerformance,
-        allResources,
-        assignments,
-        timetable,
+      currentAcademicYear: {
+        _id: academicYear._id,
+        name: academicYear.name,
+        fromYear: academicYear.fromYear,
+        toYear: academicYear.toYear,
+        isCurrent: academicYear.isCurrent,
+      },
+      sessionProgress,
+      termAttendance,
+      feeStatus,
+      nextClass,
+      missedClasses,
+      subjectPerformance,
+      allResources,
+      assignments,
+      timetable,
     };
   } catch (error) {
     console.error('Error in getStudentDashboardData:', error);
