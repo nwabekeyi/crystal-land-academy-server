@@ -1,3 +1,5 @@
+// routes/academic/class.route.js
+
 const express = require("express");
 const classRouter = express.Router();
 const isAdmin = require("../../../middlewares/isAdmin");
@@ -12,7 +14,8 @@ const {
   getClassLevelsAndSubclassesForTeacherController,
   assignTeachersToClassController,
   addSubclassToClassLevelController,
-  getStudentsInSubclassController, // New controller
+  getStudentsInSubclassController,
+  getClassLevelsWithoutSensitiveDataController, // New controller
 } = require("../../../controllers/academic/class.controller");
 
 classRouter
@@ -44,6 +47,10 @@ classRouter
 
 classRouter
   .route("/class-levels/:classLevelId/subclasses/:subclassLetter/students")
-  .get(isLoggedIn, getStudentsInSubclassController); // New route
+  .get(isLoggedIn, getStudentsInSubclassController);
+
+classRouter
+  .route("/class-levels/admin/no-sensitive-data")
+  .get(isLoggedIn, isAdmin, getClassLevelsWithoutSensitiveDataController);
 
 module.exports = classRouter;

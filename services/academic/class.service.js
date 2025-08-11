@@ -860,3 +860,44 @@ exports.addSubclassToClassLevelService = async (data, classId, userId, res) => {
     return responseStatus(res, 500, "error", `An error occurred while adding the subclass: ${error.message}`);
   }
 };
+exports.getClassLevelsWithoutSensitiveDataService = async (res) => {
+  try {
+    // Find the current academic year
+    const currentAcademicYear = await mongoose.model("AcademicYear").findOne({ isCurrent: true });
+    if (!currentAcademicYear) {
+      return responseStatus(res, 404, "failed", "No current academic year found");
+    }
+
+    const filter = { academicYear: currentAcademicYear._id };
+
+    // Fetch class levels with specific fields, excluding students, subjects, teachers, createdBy, and academicYear
+    const classes = await ClassLevel.find(filter)
+      .select("section name description subclasses.letter subclasses.feesPerTerm");
+
+    // Transform subclasses to exclude subjects and students
+    const transformedClasses = classes.map((classLevel) => ({
+      _id: classLevel._id,
+      section: classLevel.section,
+      name: classLevel.name,
+      description: classLevel.description,
+      subclasses: classLevel.subclasses.map((sub) => ({
+        letter: sub.letter,
+        feesPerTerm: sub.feesPerTerm.map((fee) => ({
+          termName: fee.termName,
+          amount: fee.amount,
+          description: fee.description,
+        })),
+      })),
+    }));
+
+    const result = {
+      total: transformedClasses.length,
+      data: transformedClasses,
+    };
+
+    return responseStatus(res, 200, "success", result);
+  } catch (error) {
+    console.error("Get Class Levels Without Sensitive Data Error:", error.message, error.stack);
+    return responseStatus(res, 500, "error", `An error occurred while fetching class levels: ${error.message}`);
+  }
+};

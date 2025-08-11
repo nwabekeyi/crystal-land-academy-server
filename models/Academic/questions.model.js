@@ -2,7 +2,7 @@ const mongoose = require("mongoose");
 
 const { ObjectId } = mongoose;
 
-//questionSchema
+// questionSchema
 const questionSchema = new mongoose.Schema(
   {
     question: {
@@ -30,6 +30,11 @@ const questionSchema = new mongoose.Schema(
     correctAnswer: {
       type: String,
       required: true,
+    },
+    score: {
+      type: Number,
+      required: true,
+      min: [0, "Score must be greater than or equal to zero"],
     },
     isCorrect: {
       type: Boolean,

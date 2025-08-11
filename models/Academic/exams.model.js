@@ -1,4 +1,3 @@
-// models/Academic/exams.model.js
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
 
@@ -30,8 +29,9 @@ const examSchema = new mongoose.Schema(
       max: [100, "Total mark cannot exceed 100"],
     },
     duration: {
-      type: String,
+      type: Number,
       required: true,
+      min: [1, "Duration must be at least 1 minute"],
     },
     examDate: {
       type: Date,
@@ -61,23 +61,29 @@ const examSchema = new mongoose.Schema(
     ],
     classLevel: {
       type: ObjectId,
-      ref: "ClassLevel",
       required: true,
     },
     createdBy: {
       type: ObjectId,
-      ref: "Teacher",
       required: true,
     },
     academicTerm: {
       type: ObjectId,
-      ref: "AcademicTerm",
       required: true,
     },
     academicYear: {
       type: ObjectId,
-      ref: "AcademicYear",
       required: true,
+    },
+    subclassLetter: {
+      type: String,
+      match: [/^[A-Z]$/, "Subclass letter must be a single capital letter (A-Z)"],
+    },
+    startDate: {
+      type: Date,
+    },
+    startTime: {
+      type: String,
     },
   },
   { timestamps: true }
@@ -87,7 +93,8 @@ const examSchema = new mongoose.Schema(
 examSchema.pre("save", function (next) {
   if (this.passMark > this.totalMark) {
     const error = new Error("Pass mark cannot exceed total mark");
-    return next(error);
+    error.statusCode = 400;
+    throw error;
   }
   next();
 });
@@ -100,7 +107,8 @@ examSchema.pre(["updateOne", "findOneAndUpdate"], function (next) {
 
   if (passMark !== undefined && totalMark !== undefined && passMark > totalMark) {
     const error = new Error("Pass mark cannot exceed total mark");
-    return next(error);
+    error.statusCode = 400;
+    throw error;
   }
   next();
 });
@@ -109,6 +117,7 @@ examSchema.pre(["updateOne", "findOneAndUpdate"], function (next) {
 examSchema.pre("remove", async function (next) {
   const Question = require("./question.model");
   await Question.deleteMany({ _id: { $in: this.questions } });
+  console.log(`Deleted questions for exam: ${this._id}`);
   next();
 });
 

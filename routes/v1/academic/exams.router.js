@@ -4,6 +4,7 @@ const examRouter = express.Router();
 const isLoggedIn = require("../../../middlewares/isLoggedIn");
 const isTeacher = require("../../../middlewares/isTeacher");
 const isAdmin = require("../../../middlewares/isAdmin");
+const isStudent = require("../../../middlewares/isStudent");
 const {
   teacherCreateExamController,
   teacherGetAllExamsController,
@@ -24,6 +25,7 @@ const {
   adminGetQuestionsByExamController,
   adminUpdateQuestionController,
   adminDeleteQuestionController,
+  studentGetQuestionsByClassController
 } = require("../../../controllers/academic/exams.controller");
 
 // Teacher Routes
@@ -74,4 +76,11 @@ examRouter
   .patch(isLoggedIn, isAdmin, adminUpdateQuestionController) // Update a specific question (admin only)
   .delete(isLoggedIn, isAdmin, adminDeleteQuestionController); // Delete a specific question (admin only)
 
+// Get questions for approved exams by class level and subclass
+examRouter.get(
+  "/student/exams/questions",
+  isLoggedIn,
+  isStudent,
+  studentGetQuestionsByClassController
+);
 module.exports = examRouter;

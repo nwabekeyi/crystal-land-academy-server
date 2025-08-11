@@ -1,10 +1,61 @@
-// services/academic/exams.service.js
 const Exams = require("../../models/Academic/exams.model");
 const Question = require("../../models/Academic/questions.model");
 const Teacher = require("../../models/Staff/teachers.model");
 const Subject = require("../../models/Academic/subject.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const Admin = require("../../models/Staff/admin.model");
+const Student = require("../../models/Students/students.model");
+
+// Helper function to check for exam conflicts (same date or startDate for same subclass)
+async function checkExamDateConflict(res, data, examId = null) {
+  const { classLevel, subclassLetter, examDate, startDate } = data;
+  const query = {
+    classLevel,
+    subclassLetter: subclassLetter || null,
+    $or: [
+      { examDate: new Date(examDate) },
+      startDate ? { startDate: new Date(startDate) } : null,
+    ].filter(Boolean),
+  };
+
+  if (examId) {
+    query._id = { $ne: examId }; // Exclude the current exam when updating
+  }
+
+  const conflictingExam = await Exams.findOne(query);
+  if (conflictingExam) {
+    responseStatus(res, 400, "failed", "Another exam/test is already scheduled on this date or start date for the same class/subclass");
+    return true;
+  }
+  return false;
+}
+
+// Helper function to check for single exam per subject per term (if examType is "exam")
+async function checkSingleExamPerSubject(res, data, examId = null) {
+  const { subject, classLevel, academicTerm, academicYear, examType, subclassLetter } = data;
+  if (examType === "exam") {
+    const query = {
+      subject,
+      classLevel,
+      academicTerm,
+      academicYear,
+      examType: "exam",
+      subclassLetter: subclassLetter || null,
+    };
+
+    if (examId) {
+      query._id = { $ne: examId }; // Exclude the current exam when updating
+    }
+
+    const existingExam = await Exams.findOne(query);
+    if (existingExam) {
+      responseStatus(res, 400, "failed", "An exam of type 'exam' already exists for this subject in the same term");
+      return true;
+    }
+  }
+  return false;
+}
 
 // Teacher: Create Exam
 const teacherCreateExamService = async (res, data, teacherId) => {
@@ -21,6 +72,9 @@ const teacherCreateExamService = async (res, data, teacherId) => {
     examDate,
     examTime,
     examType,
+    subclassLetter,
+    startDate,
+    startTime,
   } = data;
 
   // Validate teacher
@@ -48,16 +102,40 @@ const teacherCreateExamService = async (res, data, teacherId) => {
     return null;
   }
 
-  // Check if exam exists
+  // Check if teacher is assigned to the subject and class
+  const isAssigned = await checkTeacherAssignment(teacherId, subject, classLevel);
+  if (!isAssigned) {
+    responseStatus(res, 403, "failed", "Teacher is not assigned to this subject and class");
+    return null;
+  }
+
+  // Check for existing exam with same details
   const examExist = await Exams.findOne({
     name,
     subject,
     classLevel,
     academicTerm,
     academicYear,
+    subclassLetter: subclassLetter || null,
   });
   if (examExist) {
-    responseStatus(res, 400, "failed", "Exam already exists");
+    responseStatus(res, 400, "failed", "Exam already exists with these details");
+    return null;
+  }
+
+  // Check for single exam per subject per term (if examType is "exam")
+  if (await checkSingleExamPerSubject(res, data)) {
+    return null;
+  }
+
+  // Check for date conflicts
+  if (await checkExamDateConflict(res, data)) {
+    return null;
+  }
+
+  // Validate duration
+  if (!Number.isInteger(duration) || duration <= 0) {
+    responseStatus(res, 400, "failed", "Duration must be a positive integer (in minutes)");
     return null;
   }
 
@@ -77,6 +155,9 @@ const teacherCreateExamService = async (res, data, teacherId) => {
     examType,
     examStatus: "pending",
     createdBy: teacherId,
+    subclassLetter: subclassLetter || null,
+    startDate: startDate || null,
+    startTime: startTime || null,
   });
 
   // Update teacher's examsCreated
@@ -107,6 +188,7 @@ const teacherGetAllExamsService = async (res, teacherId, filters = {}) => {
   if (filters.examStatus) query.examStatus = filters.examStatus;
   if (filters.academicYear) query.academicYear = filters.academicYear;
   if (filters.academicTerm) query.academicTerm = filters.academicTerm;
+  if (filters.subclassLetter) query.subclassLetter = filters.subclassLetter;
 
   const exams = await Exams.find(query)
     .populate("subject")
@@ -185,20 +267,17 @@ const teacherUpdateExamService = async (res, data, examId, teacherId) => {
     return null;
   }
 
-  // If updating subject or classLevel, verify teacher assignment
-  const subjectId = data.subject || exam.subject;
-  const classLevelId = data.classLevel || exam.classLevel;
-  // const isAssigned = await checkTeacherAssignment(teacherId, subjectId, classLevelId);
-  // if (!isAssigned) {
-  //   responseStatus(res, 403, "failed", "Teacher not assigned to this subject in the specified class level");
-  //   return null;
-  // }
-
   // Validate subject and classLevel if provided
   if (data.subject) {
     const subjectDoc = await Subject.findById(data.subject).populate("name");
     if (!subjectDoc) {
       responseStatus(res, 404, "failed", "Subject not found");
+      return null;
+    }
+    // Check teacher assignment for new subject
+    const isAssigned = await checkTeacherAssignment(teacherId, data.subject, data.classLevel || exam.classLevel);
+    if (!isAssigned) {
+      responseStatus(res, 403, "failed", "Teacher is not assigned to the new subject and class");
       return null;
     }
   }
@@ -210,6 +289,12 @@ const teacherUpdateExamService = async (res, data, examId, teacherId) => {
     }
   }
 
+  // Validate duration if provided
+  if (data.duration && (!Number.isInteger(data.duration) || data.duration <= 0)) {
+    responseStatus(res, 400, "failed", "Duration must be a positive integer (in minutes)");
+    return null;
+  }
+
   // Check for duplicate exam
   const examDuplicate = await Exams.findOne({
     name: data.name || exam.name,
@@ -217,11 +302,22 @@ const teacherUpdateExamService = async (res, data, examId, teacherId) => {
     classLevel: data.classLevel || exam.classLevel,
     academicTerm: data.academicTerm || exam.academicTerm,
     academicYear: data.academicYear || exam.academicYear,
+    subclassLetter: data.subclassLetter || exam.subclassLetter,
     _id: { $ne: examId },
   });
 
   if (examDuplicate) {
     responseStatus(res, 400, "failed", "Exam with these details already exists");
+    return null;
+  }
+
+  // Check for single exam per subject per term (if examType is "exam")
+  if (await checkSingleExamPerSubject(res, { ...exam.toObject(), ...data }, examId)) {
+    return null;
+  }
+
+  // Check for date conflicts
+  if (await checkExamDateConflict(res, { ...exam.toObject(), ...data }, examId)) {
     return null;
   }
 
@@ -272,13 +368,6 @@ const teacherDeleteExamService = async (res, examId, teacherId) => {
     return null;
   }
 
-  // Verify teacher is assigned to the subject in the class
-  // const isAssigned = await checkTeacherAssignment(teacherId, exam.subject, exam.classLevel);
-  // if (!isAssigned) {
-  //   responseStatus(res, 403, "failed", "Teacher not assigned to this subject in the specified class level");
-  //   return null;
-  // }
-
   // Remove exam from teacher's examsCreated
   await Teacher.findByIdAndUpdate(teacherId, {
     $pull: { examsCreated: examId },
@@ -290,7 +379,7 @@ const teacherDeleteExamService = async (res, examId, teacherId) => {
 
 // Teacher: Add Question to Exam
 const teacherAddQuestionToExamService = async (res, examId, data, teacherId) => {
-  const { question, optionA, optionB, optionC, optionD, correctAnswer, marks } = data;
+  const { question, optionA, optionB, optionC, optionD, correctAnswer, score } = data;
 
   // Validate teacher
   const teacher = await Teacher.findById(teacherId);
@@ -318,18 +407,11 @@ const teacherAddQuestionToExamService = async (res, examId, data, teacherId) => 
     return null;
   }
 
-  // Prevent modifications if exam is approved
+  // Prevent adding questions if exam is approved
   if (exam.examStatus === "approved") {
     responseStatus(res, 400, "failed", "Cannot add questions to an approved exam");
     return null;
   }
-
-  // Verify teacher is assigned to the subject in the class
-  // const isAssigned = await checkTeacherAssignment(teacherId, exam.subject, exam.classLevel);
-  // if (!isAssigned) {
-  //   responseStatus(res, 403, "failed", "Teacher not assigned to this subject in the specified class level");
-  //   return null;
-  // }
 
   // Validate correctAnswer
   if (![optionA, optionB, optionC, optionD].includes(correctAnswer)) {
@@ -337,19 +419,19 @@ const teacherAddQuestionToExamService = async (res, examId, data, teacherId) => 
     return null;
   }
 
-  // Validate marks
-  if (!marks || marks <= 0) {
-    responseStatus(res, 400, "failed", "Marks must be greater than zero");
+  // Validate score
+  if (!score || score <= 0) {
+    responseStatus(res, 400, "failed", "Score must be greater than zero");
     return null;
   }
 
-  // Check if adding the question exceeds the totalMark of the exam
-  const currentTotalMarks = (await Question.find({ _id: { $in: exam.questions } })).reduce(
-    (sum, q) => sum + (q.marks || 0),
+  // Check if adding the question exceeds the totalMark of the exam or 100
+  const currentTotalScore = (await Question.find({ _id: { $in: exam.questions } })).reduce(
+    (sum, q) => sum + (q.score || 0),
     0
   );
-  if (currentTotalMarks + marks > exam.totalMark) {
-    responseStatus(res, 400, "failed", "Total marks for questions cannot exceed exam's total mark");
+  if (currentTotalScore + score > exam.totalMark || currentTotalScore + score > 100) {
+    responseStatus(res, 400, "failed", `Total score for questions (${currentTotalScore + score}) cannot exceed exam's total mark (${exam.totalMark}) or 100`);
     return null;
   }
 
@@ -361,8 +443,8 @@ const teacherAddQuestionToExamService = async (res, examId, data, teacherId) => 
     optionC,
     optionD,
     correctAnswer,
-    marks,
-    isCorrect: true, // Assuming isCorrect is set to true for valid questions
+    score,
+    isCorrect: true,
     createdBy: teacherId,
   });
 
@@ -436,9 +518,9 @@ const teacherUpdateQuestionService = async (res, examId, questionId, data, teach
     return null;
   }
 
-  // Prevent modifications if exam is approved
+  // Prevent updates if exam is approved
   if (exam.examStatus === "approved") {
-    responseStatus(res, 400, "failed", "Cannot update questions in an approved exam");
+    responseStatus(res, 400, "failed", "Cannot update questions for an approved exam");
     return null;
   }
 
@@ -459,18 +541,18 @@ const teacherUpdateQuestionService = async (res, examId, questionId, data, teach
     }
   }
 
-  // Validate marks if provided
-  if (data.marks) {
-    if (data.marks <= 0) {
-      responseStatus(res, 400, "failed", "Marks must be greater than zero");
+  // Validate score if provided
+  if (data.score) {
+    if (data.score <= 0) {
+      responseStatus(res, 400, "failed", "Score must be greater than zero");
       return null;
     }
 
-    // Check if updated marks exceed exam's totalMark
-    const currentTotalMarks = (await Question.find({ _id: { $in: exam.questions, $ne: questionId } }))
-      .reduce((sum, q) => sum + (q.marks || 0), 0);
-    if (currentTotalMarks + data.marks > exam.totalMark) {
-      responseStatus(res, 400, "failed", "Total marks for questions cannot exceed exam's total mark");
+    // Check if updated score exceeds exam's totalMark or 100
+    const currentTotalScore = (await Question.find({ _id: { $in: exam.questions, $ne: questionId } }))
+      .reduce((sum, q) => sum + (q.score || 0), 0);
+    if (currentTotalScore + data.score > exam.totalMark || currentTotalScore + data.score > 100) {
+      responseStatus(res, 400, "failed", `Total score for questions (${currentTotalScore + data.score}) cannot exceed exam's total mark (${exam.totalMark}) or 100`);
       return null;
     }
   }
@@ -478,7 +560,7 @@ const teacherUpdateQuestionService = async (res, examId, questionId, data, teach
   // Update question
   const updatedQuestion = await Question.findByIdAndUpdate(
     questionId,
-    { $set: { ...data, isCorrect: true } }, // Set isCorrect to true for valid updates
+    { $set: { ...data, isCorrect: true } },
     { new: true, runValidators: true }
   );
 
@@ -510,12 +592,6 @@ const teacherDeleteQuestionService = async (res, examId, questionId, teacherId) 
   // Ensure teacher created the exam
   if (exam.createdBy.toString() !== teacherId) {
     responseStatus(res, 403, "failed", "Unauthorized to delete questions for this exam");
-    return null;
-  }
-
-  // Prevent modifications if exam is approved
-  if (exam.examStatus === "approved") {
-    responseStatus(res, 400, "failed", "Cannot delete questions from an approved exam");
     return null;
   }
 
@@ -551,11 +627,14 @@ const adminCreateExamService = async (res, data, adminId) => {
     examDate,
     examTime,
     examType,
+    subclassLetter,
+    startDate,
+    startTime,
   } = data;
 
   // Validate admin
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can create exams");
     return null;
   }
@@ -572,16 +651,33 @@ const adminCreateExamService = async (res, data, adminId) => {
     return null;
   }
 
-  // Check if exam exists
+  // Check for existing exam with same details
   const examExist = await Exams.findOne({
     name,
     subject,
     classLevel,
     academicTerm,
     academicYear,
+    subclassLetter: subclassLetter || null,
   });
   if (examExist) {
-    responseStatus(res, 400, "failed", "Exam already exists");
+    responseStatus(res, 400, "failed", "Exam already exists with these details");
+    return null;
+  }
+
+  // Check for single exam per subject per term (if examType is "exam")
+  if (await checkSingleExamPerSubject(res, data)) {
+    return null;
+  }
+
+  // Check for date conflicts
+  if (await checkExamDateConflict(res, data)) {
+    return null;
+  }
+
+  // Validate duration
+  if (!Number.isInteger(duration) || duration <= 0) {
+    responseStatus(res, 400, "failed", "Duration must be a positive integer (in minutes)");
     return null;
   }
 
@@ -601,6 +697,9 @@ const adminCreateExamService = async (res, data, adminId) => {
     examType,
     examStatus: "pending",
     createdBy: adminId,
+    subclassLetter: subclassLetter || null,
+    startDate: startDate || null,
+    startTime: startTime || null,
   });
 
   // Update admin's examsCreated
@@ -613,8 +712,8 @@ const adminCreateExamService = async (res, data, adminId) => {
 
 // Admin: Get All Exams
 const adminGetAllExamsService = async (res, adminId, filters = {}) => {
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can access all exams");
     return null;
   }
@@ -626,6 +725,7 @@ const adminGetAllExamsService = async (res, adminId, filters = {}) => {
   if (filters.academicYear) query.academicYear = filters.academicYear;
   if (filters.academicTerm) query.academicTerm = filters.academicTerm;
   if (filters.createdBy) query.createdBy = filters.createdBy;
+  if (filters.subclassLetter) query.subclassLetter = filters.subclassLetter;
 
   const exams = await Exams.find(query)
     .populate("subject")
@@ -639,8 +739,8 @@ const adminGetAllExamsService = async (res, adminId, filters = {}) => {
 
 // Admin: Get Exam by ID
 const adminGetExamByIdService = async (res, examId, adminId) => {
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can access this exam");
     return null;
   }
@@ -662,8 +762,8 @@ const adminGetExamByIdService = async (res, examId, adminId) => {
 
 // Admin: Update Exam
 const adminUpdateExamService = async (res, data, examId, adminId) => {
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can update exams");
     return null;
   }
@@ -690,6 +790,12 @@ const adminUpdateExamService = async (res, data, examId, adminId) => {
     }
   }
 
+  // Validate duration if provided
+  if (data.duration && (!Number.isInteger(data.duration) || data.duration <= 0)) {
+    responseStatus(res, 400, "failed", "Duration must be a positive integer (in minutes)");
+    return null;
+  }
+
   // Check for duplicate exam
   const examDuplicate = await Exams.findOne({
     name: data.name || exam.name,
@@ -697,11 +803,22 @@ const adminUpdateExamService = async (res, data, examId, adminId) => {
     classLevel: data.classLevel || exam.classLevel,
     academicTerm: data.academicTerm || exam.academicTerm,
     academicYear: data.academicYear || exam.academicYear,
+    subclassLetter: data.subclassLetter || exam.subclassLetter,
     _id: { $ne: examId },
   });
 
   if (examDuplicate) {
     responseStatus(res, 400, "failed", "Exam with these details already exists");
+    return null;
+  }
+
+  // Check for single exam per subject per term (if examType is "exam")
+  if (await checkSingleExamPerSubject(res, { ...exam.toObject(), ...data }, examId)) {
+    return null;
+  }
+
+  // Check for date conflicts
+  if (await checkExamDateConflict(res, { ...exam.toObject(), ...data }, examId)) {
     return null;
   }
 
@@ -722,8 +839,8 @@ const adminUpdateExamService = async (res, data, examId, adminId) => {
 
 // Admin: Delete Exam
 const adminDeleteExamService = async (res, examId, adminId) => {
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can delete exams");
     return null;
   }
@@ -731,6 +848,12 @@ const adminDeleteExamService = async (res, examId, adminId) => {
   const exam = await Exams.findById(examId);
   if (!exam) {
     responseStatus(res, 404, "failed", "Exam not found");
+    return null;
+  }
+
+  // Prevent deletion if exam is approved
+  if (exam.examStatus === "approved") {
+    responseStatus(res, 400, "failed", "Cannot delete an approved exam");
     return null;
   }
 
@@ -745,13 +868,13 @@ const adminDeleteExamService = async (res, examId, adminId) => {
 
 // Admin: Approve Exam
 const adminApproveExamService = async (res, examId, adminId, startDate, startTime) => {
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can approve exams");
     return null;
   }
 
-  const exam = await Exams.findById(examId);
+  const exam = await Exams.findById(examId).populate("questions");
   if (!exam) {
     responseStatus(res, 404, "failed", "Exam not found");
     return null;
@@ -773,6 +896,18 @@ const adminApproveExamService = async (res, examId, adminId, startDate, startTim
     return null;
   }
 
+  // Validate that total score of questions equals exam's totalMark
+  const totalQuestionScore = exam.questions.reduce((sum, q) => sum + (q.score || 0), 0);
+  if (totalQuestionScore !== exam.totalMark) {
+    responseStatus(
+      res,
+      400,
+      "failed",
+      `Total score of questions (${totalQuestionScore}) must equal exam's total mark (${exam.totalMark})`
+    );
+    return null;
+  }
+
   exam.examStatus = "approved";
   exam.startDate = parsedStartDate;
   exam.startTime = startTime;
@@ -783,11 +918,11 @@ const adminApproveExamService = async (res, examId, adminId, startDate, startTim
 
 // Admin: Add Question to Exam
 const adminAddQuestionToExamService = async (res, examId, data, adminId) => {
-  const { question, optionA, optionB, optionC, optionD, correctAnswer, marks } = data;
+  const { question, optionA, optionB, optionC, optionD, correctAnswer, score } = data;
 
   // Validate admin
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can add questions");
     return null;
   }
@@ -799,25 +934,31 @@ const adminAddQuestionToExamService = async (res, examId, data, adminId) => {
     return null;
   }
 
+  // Prevent adding questions if exam is approved
+  if (exam.examStatus === "approved") {
+    responseStatus(res, 400, "failed", "Cannot add questions to an approved exam");
+    return null;
+  }
+
   // Validate correctAnswer
   if (![optionA, optionB, optionC, optionD].includes(correctAnswer)) {
     responseStatus(res, 400, "failed", "Correct answer must match one of the provided options");
     return null;
   }
 
-  // Validate marks
-  if (!marks || marks <= 0) {
-    responseStatus(res, 400, "failed", "Marks must be greater than zero");
+  // Validate score
+  if (!score || score <= 0) {
+    responseStatus(res, 400, "failed", "Score must be greater than zero");
     return null;
   }
 
-  // Check if adding the question exceeds the totalMark of the exam
-  const currentTotalMarks = (await Question.find({ _id: { $in: exam.questions } })).reduce(
-    (sum, q) => sum + (q.marks || 0),
+  // Check if adding the question exceeds the totalMark of the exam or 100
+  const currentTotalScore = (await Question.find({ _id: { $in: exam.questions } })).reduce(
+    (sum, q) => sum + (q.score || 0),
     0
   );
-  if (currentTotalMarks + marks > exam.totalMark) {
-    responseStatus(res, 400, "failed", "Total marks for questions cannot exceed exam's total mark");
+  if (currentTotalScore + score > exam.totalMark || currentTotalScore + score > 100) {
+    responseStatus(res, 400, "failed", `Total score for questions (${currentTotalScore + score}) cannot exceed exam's total mark (${exam.totalMark}) or 100`);
     return null;
   }
 
@@ -829,8 +970,8 @@ const adminAddQuestionToExamService = async (res, examId, data, adminId) => {
     optionC,
     optionD,
     correctAnswer,
-    marks,
-    isCorrect: true, // Assuming isCorrect is set to true for valid questions
+    score,
+    isCorrect: true,
     createdBy: adminId,
   });
 
@@ -844,8 +985,8 @@ const adminAddQuestionToExamService = async (res, examId, data, adminId) => {
 // Admin: Get All Questions for an Exam
 const adminGetQuestionsByExamService = async (res, examId, adminId) => {
   // Validate admin
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can access questions");
     return null;
   }
@@ -867,8 +1008,8 @@ const adminGetQuestionsByExamService = async (res, examId, adminId) => {
 // Admin: Update Question
 const adminUpdateQuestionService = async (res, examId, questionId, data, adminId) => {
   // Validate admin
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can update questions");
     return null;
   }
@@ -877,6 +1018,12 @@ const adminUpdateQuestionService = async (res, examId, questionId, data, adminId
   const exam = await Exams.findById(examId);
   if (!exam) {
     responseStatus(res, 404, "failed", "Exam not found");
+    return null;
+  }
+
+  // Prevent updates if exam is approved
+  if (exam.examStatus === "approved") {
+    responseStatus(res, 400, "failed", "Cannot update questions for an approved exam");
     return null;
   }
 
@@ -897,18 +1044,18 @@ const adminUpdateQuestionService = async (res, examId, questionId, data, adminId
     }
   }
 
-  // Validate marks if provided
-  if (data.marks) {
-    if (data.marks <= 0) {
-      responseStatus(res, 400, "failed", "Marks must be greater than zero");
+  // Validate score if provided
+  if (data.score) {
+    if (data.score <= 0) {
+      responseStatus(res, 400, "failed", "Score must be greater than zero");
       return null;
     }
 
-    // Check if updated marks exceed exam's totalMark
-    const currentTotalMarks = (await Question.find({ _id: { $in: exam.questions, $ne: questionId } }))
-      .reduce((sum, q) => sum + (q.marks || 0), 0);
-    if (currentTotalMarks + data.marks > exam.totalMark) {
-      responseStatus(res, 400, "failed", "Total marks for questions cannot exceed exam's total mark");
+    // Check if updated score exceeds exam's totalMark or 100
+    const currentTotalScore = (await Question.find({ _id: { $in: exam.questions, $ne: questionId } }))
+      .reduce((sum, q) => sum + (q.score || 0), 0);
+    if (currentTotalScore + data.score > exam.totalMark || currentTotalScore + data.score > 100) {
+      responseStatus(res, 400, "failed", `Total score for questions (${currentTotalScore + data.score}) cannot exceed exam's total mark (${exam.totalMark}) or 100`);
       return null;
     }
   }
@@ -916,7 +1063,7 @@ const adminUpdateQuestionService = async (res, examId, questionId, data, adminId
   // Update question
   const updatedQuestion = await Question.findByIdAndUpdate(
     questionId,
-    { $set: { ...data, isCorrect: true } }, // Set isCorrect to true for valid updates
+    { $set: { ...data, isCorrect: true } },
     { new: true, runValidators: true }
   );
 
@@ -926,8 +1073,8 @@ const adminUpdateQuestionService = async (res, examId, questionId, data, adminId
 // Admin: Delete Question
 const adminDeleteQuestionService = async (res, examId, questionId, adminId) => {
   // Validate admin
-  const admin = await Teacher.findById(adminId);
-  if (!admin || !admin.isAdmin) {
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
     responseStatus(res, 403, "failed", "Only admins can delete questions");
     return null;
   }
@@ -993,16 +1140,126 @@ async function checkTeacherAssignment(teacherId, subjectId, classLevelId) {
   return assignment.teachers.some((t) => t.toString() === teacherId);
 }
 
+
+// Student: Get Questions for Approved Exams by Class Level and Subclass
+const studentGetQuestionsByClassService = async (res, classLevelId, subclassLetter, studentId) => {
+  // Validate student
+  const student = await Student.findById(studentId);
+  if (!student) {
+    responseStatus(res, 404, "failed", "Student not found");
+    return null;
+  }
+
+  // Validate class level
+  const classLevel = await ClassLevel.findById(classLevelId);
+  if (!classLevel) {
+    responseStatus(res, 404, "failed", "Class level not found");
+    return null;
+  }
+
+  // For SS classes, validate subclassLetter
+  if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name) && !subclassLetter) {
+    responseStatus(res, 400, "failed", "Subclass letter is required for SS classes");
+    return null;
+  }
+  if (subclassLetter && !classLevel.subclasses.some((sub) => sub.letter === subclassLetter)) {
+    responseStatus(res, 400, "failed", "Invalid subclass letter for this class");
+    return null;
+  }
+
+  // Query approved exams for the class level and subclass
+  const query = {
+    classLevel: classLevelId,
+    examStatus: "approved",
+    subclassLetter: subclassLetter || null,
+  };
+
+  const exams = await Exams.find(query)
+    .populate({
+      path: "subject",
+      populate: { path: "name", select: "name" },
+    })
+    .select("_id name examType examDate examTime duration questions");
+
+  if (!exams || exams.length === 0) {
+    responseStatus(res, 404, "failed", "No approved exams found for this class/subclass");
+    return null;
+  }
+
+  // Fetch questions for all exams
+  const questionIds = exams.flatMap((exam) => exam.questions);
+  const questions = await Question.find({ _id: { $in: questionIds } }).select(
+    "question optionA optionB optionC optionD score"
+  );
+
+  if (!questions || questions.length === 0) {
+    responseStatus(res, 404, "failed", "No questions found for approved exams");
+    return null;
+  }
+
+  // Group exams and questions by subject
+  const groupedBySubject = exams.reduce((acc, exam) => {
+    const subjectId = exam.subject._id.toString();
+    const subjectName = exam.subject.name.name;
+
+    // Find or create subject entry
+    let subjectEntry = acc.find((entry) => entry.subjectId === subjectId);
+    if (!subjectEntry) {
+      subjectEntry = {
+        subjectId,
+        subjectName,
+        exams: [],
+      };
+      acc.push(subjectEntry);
+    }
+
+    // Format questions for the exam
+    const examQuestions = questions
+      .filter((q) => exam.questions.includes(q._id))
+      .map((q, index) => ({
+        sn: index + 1,
+        _id: q._id,
+        question: q.question,
+        optionA: q.optionA,
+        optionB: q.optionB,
+        optionC: q.optionC,
+        optionD: q.optionD,
+        score: q.score,
+      }));
+
+    // Add exam to subject entry
+    subjectEntry.exams.push({
+      examId: exam._id,
+      examName: exam.name,
+      examType: exam.examType,
+      examDate: exam.examDate,
+      examTime: exam.examTime,
+      duration: exam.duration,
+      questions: examQuestions,
+    });
+
+    return acc;
+  }, []);
+
+  // Format final response
+  return {
+    classLevel: classLevel.name,
+    subclassLetter: subclassLetter || null,
+    subjects: groupedBySubject,
+  };
+};
+
+
 module.exports = {
   teacherCreateExamService,
   teacherGetAllExamsService,
   teacherGetExamByIdService,
   teacherUpdateExamService,
   teacherDeleteExamService,
-  teacherAddQuestionToExamService, // New
-  teacherGetQuestionsByExamService, // New
-  teacherUpdateQuestionService, // New
-  teacherDeleteQuestionService, // New
+  teacherAddQuestionToExamService,
+  teacherGetQuestionsByExamService,
+  teacherUpdateQuestionService,
+  teacherDeleteQuestionService,
   adminCreateExamService,
   adminGetAllExamsService,
   adminGetExamByIdService,
@@ -1013,4 +1270,5 @@ module.exports = {
   adminGetQuestionsByExamService,
   adminUpdateQuestionService,
   adminDeleteQuestionService,
+  studentGetQuestionsByClassService,
 };

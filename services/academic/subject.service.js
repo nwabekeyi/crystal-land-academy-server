@@ -820,3 +820,98 @@ exports.getStudentsBySubjectService = async (classId, subclassLetter) => {
 
   return result;
 };
+
+
+
+/**
+ * Get Subjects by ClassLevel and optional Subclass service
+ * @param {Object} data - Contains classLevelId and optional subclassLetter
+ * @returns {Array} - List of subjects for the class or subclass
+ * @throws {Error} - If validation fails
+ */
+exports.getSubjectsForSubclassService = async (data = {}) => {
+  const { classLevelId, subclassLetter } = data;
+
+  // If no classLevelId, return all subjects
+  if (!classLevelId) {
+    const subjects = await Subject.find().populate({
+      path: "name",
+      select: "name",
+    });
+    console.log(`No classLevelId provided, fetched ${subjects.length} subjects`);
+    return subjects;
+  }
+
+  // Validate classLevelId
+  if (!mongoose.Types.ObjectId.isValid(classLevelId)) {
+    const error = new Error("Invalid ClassLevel ID");
+    error.statusCode = 400;
+    throw error;
+  }
+
+  // Fetch ClassLevel
+  const classLevel = await ClassLevel.findById(classLevelId);
+  if (!classLevel) {
+    const error = new Error("ClassLevel not found");
+    error.statusCode = 404;
+    throw error;
+  }
+
+  // Check if class is SS
+  const isSSClass = ["SS 1", "SS 2", "SS 3"].includes(classLevel.name);
+
+  // Enforce subclassLetter for SS classes
+  if (isSSClass && !subclassLetter) {
+    const error = new Error(`Subclass letter required for ${classLevel.name}`);
+    error.statusCode = 400;
+    throw error;
+  }
+
+  let subjectIds = [];
+
+  if (isSSClass) {
+    // Validate subclassLetter for SS classes
+    const subclass = classLevel.subclasses.find((sub) => sub.letter === subclassLetter);
+    if (!subclass) {
+      const error = new Error(`Subclass ${subclassLetter} does not exist in ${classLevel.name}`);
+      error.statusCode = 400;
+      throw error;
+    }
+    // Get subjects for the specific subclass
+    subjectIds = subclass.subjects.map((s) => s.subject);
+    console.log(
+      `Fetched ${subjectIds.length} subject IDs for ${classLevel.name} subclass ${subclassLetter}`
+    );
+  } else {
+    // For non-SS classes, include subjects from class level and all subclasses
+    subjectIds = [
+      ...classLevel.subjects.map((s) => s.toString()),
+      ...classLevel.subclasses.flatMap((sub) => sub.subjects.map((s) => s.subject.toString())),
+    ];
+    // Remove duplicates
+    subjectIds = [...new Set(subjectIds)];
+    console.log(`Fetched ${subjectIds.length} subject IDs for ${classLevel.name} (all subclasses)`);
+  }
+
+  if (subjectIds.length === 0) {
+    console.log(`No subjects found for ${classLevel.name}${isSSClass ? ` subclass ${subclassLetter}` : ""}`);
+    return [];
+  }
+
+  // Validate subject IDs
+  for (const subjectId of subjectIds) {
+    if (!mongoose.Types.ObjectId.isValid(subjectId)) {
+      const error = new Error(`Invalid subject ID: ${subjectId}`);
+      error.statusCode = 400;
+      throw error;
+    }
+  }
+
+  // Fetch subjects with populated names
+  const subjects = await Subject.find({ _id: { $in: subjectIds } }).populate({
+    path: "name",
+    select: "name",
+  });
+
+  return subjects;
+};

@@ -1,12 +1,13 @@
 const mongoose = require("mongoose");
 const { ObjectId } = mongoose.Schema;
+
 const SubjectName = require("./subjectName.model.js");
 
 const subjectSchema = new mongoose.Schema(
   {
     name: {
       type: ObjectId,
-      ref: "SubjectName",
+      ref: "SubjectName", // ensures population works everywhere
       required: true,
       index: true,
     },
@@ -22,7 +23,7 @@ const subjectSchema = new mongoose.Schema(
         },
         subclassLetter: {
           type: String,
-          match: /^[A-Z]$/, // Single capital letter (A, B, etc.)
+          match: /^[A-Z]$/, // Single capital letter
         },
         teachers: [
           {
@@ -33,29 +34,45 @@ const subjectSchema = new mongoose.Schema(
       },
     ],
   },
-  { timestamps: true }
+  {
+    timestamps: true,
+    toJSON: { virtuals: true },
+    toObject: { virtuals: true },
+  }
 );
 
-// Pre-save hook to validate classLevelSubclasses and name
+// Automatically populate 'name' on all finds
+subjectSchema.pre(/^find/, function (next) {
+  this.populate({
+    path: "name",
+    model: "SubjectName",
+    select: "name -_id", // only the actual subject name
+  });
+  next();
+});
+
+// Pre-save validation
 subjectSchema.pre("save", async function (next) {
   try {
     const subject = this;
 
-    // Validate name (SubjectName reference)
+    // Validate SubjectName reference
     const subjectName = await SubjectName.findById(subject.name);
     if (!subjectName) {
       throw new Error("Referenced SubjectName does not exist");
     }
 
     // Validate classLevelSubclasses
-    if (subject.classLevelSubclasses && subject.classLevelSubclasses.length > 0) {
+    if (subject.classLevelSubclasses?.length) {
       for (const cls of subject.classLevelSubclasses) {
-        const classLevel = await mongoose.model("ClassLevel").findById(cls.classLevel);
+        const classLevel = await mongoose
+          .model("ClassLevel")
+          .findById(cls.classLevel);
+
         if (!classLevel) {
           throw new Error(`ClassLevel with ID ${cls.classLevel} does not exist`);
         }
 
-        // Validate subclassLetter
         if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name)) {
           if (!cls.subclassLetter) {
             throw new Error(`Subclass letter required for ${classLevel.name}`);
@@ -68,16 +85,17 @@ subjectSchema.pre("save", async function (next) {
               `Subclass ${cls.subclassLetter} does not exist in ${classLevel.name}`
             );
           }
-        } 
+        }
 
-        // Validate teachers
-        if (cls.teachers && cls.teachers.length > 0) {
+        if (cls.teachers?.length) {
           const validTeachers = await mongoose
             .model("Teacher")
             .find({ _id: { $in: cls.teachers } });
           if (validTeachers.length !== cls.teachers.length) {
             throw new Error(
-              `Invalid teacher IDs for ClassLevel ${cls.classLevel} subclass ${cls.subclassLetter || "all"}`
+              `Invalid teacher IDs for ClassLevel ${cls.classLevel} subclass ${
+                cls.subclassLetter || "all"
+              }`
             );
           }
         }

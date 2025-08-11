@@ -19,6 +19,7 @@ const {
   adminGetQuestionsByExamService,
   adminUpdateQuestionService,
   adminDeleteQuestionService,
+  studentGetQuestionsByClassService
 } = require("../../services/academic/exams.service");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
@@ -332,5 +333,26 @@ exports.adminDeleteQuestionController = async (req, res) => {
     responseStatus(res, 200, "success", result);
   } catch (error) {
     responseStatus(res, 500, "failed", error.message);
+  }
+};
+
+
+// Get Questions for Student by Class Level and Subclass
+exports.studentGetQuestionsByClassController = async (req, res) => {
+  try {
+    const { classLevelId, subclassLetter } = req.query;
+    const studentId = req.userAuth.id; //
+
+    if (!classLevelId) {
+      return responseStatus(res, 400, "failed", "Class level ID is required");
+    }
+
+    const result = await studentGetQuestionsByClassService(res, classLevelId, subclassLetter, studentId);
+    if (result) {
+      responseStatus(res, 200, "success", result);
+    }
+  } catch (error) {
+    console.error("Error in studentGetQuestionsByClassController:", error.message);
+    responseStatus(res, 500, "failed", "Internal server error");
   }
 };

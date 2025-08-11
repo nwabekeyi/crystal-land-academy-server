@@ -1,8 +1,6 @@
 const mongoose = require("mongoose");
-
 const { ObjectId } = mongoose.Schema;
 
-//exam result schema
 const examResultSchema = new mongoose.Schema(
   {
     student: {
@@ -15,41 +13,34 @@ const examResultSchema = new mongoose.Schema(
       ref: "Exam",
       required: true,
     },
-    grade: {
-      type: Number,
-      required: true,
-    },
     score: {
       type: Number,
       required: true,
+      min: [0, "Score cannot be negative"],
     },
     passMark: {
       type: Number,
       required: true,
-      default: 50,
+      min: [0, "Pass mark cannot be negative"],
     },
-    answeredQuestions:[
+    answeredQuestions: [
       {
-        type:Object
-      }
+        type: Object,
+      },
     ],
-    //failed/Passed
     status: {
       type: String,
       required: true,
       enum: ["failed", "passed"],
-      default: "failed",
     },
-    //Excellent/Good/Poor
     remarks: {
       type: String,
       required: true,
       enum: ["Excellent", "Good", "Poor"],
-      default: "Poor",
     },
     position: {
       type: Number,
-      // required: true,
+      required: true,
     },
     teacher: {
       type: ObjectId,
