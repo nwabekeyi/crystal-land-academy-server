@@ -1,0 +1,1 @@
+import{q as r}from"./TextField-CigEBK4R.js";import{r as t}from"./modal-CG0C6vpP.js";import{j as a}from"./index-BO-TmkzE.js";var e={},o=r;Object.defineProperty(e,"__esModule",{value:!0});var u=e.default=void 0,i=o(t()),d=a;u=e.default=(0,i.default)((0,d.jsx)("path",{d:"M5 20h14v-2H5zM19 9h-4V3H9v6H5l7 7z"}),"Download");export{u as d};
