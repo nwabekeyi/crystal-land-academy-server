@@ -62,6 +62,7 @@ const deleteOldCloudinaryFiles = () => {
       console.log('MongoDB connection closed');
     }
   });
-};
+}
+
 
 module.exports = deleteOldCloudinaryFiles;
