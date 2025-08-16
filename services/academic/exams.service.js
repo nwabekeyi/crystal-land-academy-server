@@ -6,6 +6,7 @@ const ClassLevel = require("../../models/Academic/class.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Admin = require("../../models/Staff/admin.model");
 const Student = require("../../models/Students/students.model");
+const ExamResult = require('../../models/Academic/results.model')
 
 // Helper function to check for exam conflicts (same date or startDate for same subclass)
 async function checkExamDateConflict(res, data, examId = null) {
@@ -380,7 +381,6 @@ const teacherDeleteExamService = async (res, examId, teacherId) => {
 // Teacher: Add Question to Exam
 const teacherAddQuestionToExamService = async (res, examId, data, teacherId) => {
   const { question, optionA, optionB, optionC, optionD, correctAnswer, score } = data;
-
   // Validate teacher
   const teacher = await Teacher.findById(teacherId);
   if (!teacher) {
@@ -1179,26 +1179,36 @@ const studentGetQuestionsByClassService = async (res, classLevelId, subclassLett
       path: "subject",
       populate: { path: "name", select: "name" },
     })
-    .select("_id name examType examDate examTime duration questions");
+    .select("_id name examType examDate examTime duration questions completedBy");
 
   if (!exams || exams.length === 0) {
     responseStatus(res, 404, "failed", "No approved exams found for this class/subclass");
     return null;
   }
 
-  // Fetch questions for all exams
-  const questionIds = exams.flatMap((exam) => exam.questions);
+  // Filter out exams the student has already completed
+  const availableExams = exams.filter(
+    (exam) => !exam.completedBy || !exam.completedBy.some((entry) => entry.student && entry.student.toString() === studentId)
+  );
+
+  if (!availableExams || availableExams.length === 0) {
+    responseStatus(res, 404, "failed", "No available approved exams found for this student");
+    return null;
+  }
+
+  // Fetch questions for available exams
+  const questionIds = availableExams.flatMap((exam) => exam.questions);
   const questions = await Question.find({ _id: { $in: questionIds } }).select(
     "question optionA optionB optionC optionD score"
   );
 
   if (!questions || questions.length === 0) {
-    responseStatus(res, 404, "failed", "No questions found for approved exams");
+    responseStatus(res, 404, "failed", "No questions found for available approved exams");
     return null;
   }
 
   // Group exams and questions by subject
-  const groupedBySubject = exams.reduce((acc, exam) => {
+  const groupedBySubject = availableExams.reduce((acc, exam) => {
     const subjectId = exam.subject._id.toString();
     const subjectName = exam.subject.name.name;
 

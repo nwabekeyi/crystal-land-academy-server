@@ -5,8 +5,9 @@ const Results = require("../../models/Academic/results.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 
 // Student: Create Exam Result
+// Student: Create Exam Result
 const studentCreateExamResultService = async (res, data, studentId) => {
-  const { examId, answeredQuestions } = data;
+  const { examId, answeredQuestions, completedTime } = data;
 
   // Validate student
   const student = await Student.findById(studentId);
@@ -34,6 +35,12 @@ const studentCreateExamResultService = async (res, data, studentId) => {
     return null;
   }
 
+  // Check if student has already submitted the exam
+  if (exam.completedBy && exam.completedBy.some((entry) => entry.student && entry.student.toString() === studentId)) {
+    responseStatus(res, 400, "failed", "Student has already submitted this exam");
+    return null;
+  }
+
   // Check if result already exists for this student and exam
   const existingResult = await Results.findOne({ exam: examId, student: studentId });
   if (existingResult) {
@@ -44,6 +51,12 @@ const studentCreateExamResultService = async (res, data, studentId) => {
   // Validate answeredQuestions
   if (!Array.isArray(answeredQuestions) || answeredQuestions.length === 0) {
     responseStatus(res, 400, "failed", "Answered questions must be provided");
+    return null;
+  }
+
+  // Validate completedTime format (e.g., HH:mm) if provided
+  if (completedTime && !/^(?:[01]\d|2[0-3]):[0-5]\d$/.test(completedTime)) {
+    responseStatus(res, 400, "failed", "Invalid completedTime format. Use HH:mm (e.g., 14:30)");
     return null;
   }
 
@@ -95,6 +108,25 @@ const studentCreateExamResultService = async (res, data, studentId) => {
   const allResults = await Results.find({ exam: examId }).select("score");
   const scores = [...allResults.map((r) => r.score), totalScore].sort((a, b) => b - a);
   const position = scores.indexOf(totalScore) + 1;
+
+  // Default completedTime to current time if not provided
+  const defaultCompletedTime = completedTime || new Date().toTimeString().slice(0, 5); // e.g., "15:51"
+
+  // Update Exam with completion details
+  const completedDate = new Date();
+  await Exams.findByIdAndUpdate(
+    examId,
+    {
+      $push: {
+        completedBy: {
+          student: studentId,
+          completedDate,
+          completedTime: defaultCompletedTime,
+        },
+      },
+    },
+    { new: true }
+  );
 
   // Create exam result
   const result = await Results.create({
