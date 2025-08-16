@@ -37,15 +37,15 @@ const SubmissionSchema = new Schema({
   },
   deletionScheduledAt: {
     type: Date,
-    default: null, // Optional field to schedule deletion
+    default: null,
   },
   deleted: {
     type: Boolean,
-    default: false, // Flag to indicate if the submission is deleted
+    default: false,
   },
   deletedAt: {
     type: Date,
-    default: null, // Timestamp for when the submission was deleted
+    default: null,
   },
 });
 
@@ -59,7 +59,7 @@ const AssignmentSchema = new Schema(
     session: {
       type: String,
       required: true,
-    },      deletionScheduledAt: { type: Date },
+    },
     term: {
       type: String,
       required: true,
@@ -71,7 +71,7 @@ const AssignmentSchema = new Schema(
     },
     subclass: {
       type: String,
-      required: false, // Optional for subclass filtering
+      required: false,
     },
     title: {
       type: String,
@@ -85,11 +85,24 @@ const AssignmentSchema = new Schema(
       type: String,
       required: true,
     },
+    subjectId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Subject',
+      required: true,
+    },
     submissions: {
       type: [SubmissionSchema],
       default: [],
     },
-    teacherId: { type: mongoose.Schema.Types.ObjectId, ref: 'Teacher', required: true }, 
+    teacherId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'Teacher',
+      required: true,
+    },
+    deletionScheduledAt: {
+      type: Date,
+      default: null,
+    },
   },
   {
     timestamps: true,
@@ -97,5 +110,17 @@ const AssignmentSchema = new Schema(
     toObject: { virtuals: true },
   }
 );
+
+// Automatically populate subjectId
+AssignmentSchema.pre(/^find/, function (next) {
+  this.populate({
+    path: 'subjectId',
+    select: 'name description',
+  });
+  next();
+});
+
+// Index for faster queries
+AssignmentSchema.index({ subjectId: 1 });
 
 module.exports = mongoose.model('Assignment', AssignmentSchema);

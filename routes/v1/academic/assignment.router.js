@@ -7,6 +7,8 @@ const {
   getAssignmentsForTeacherController,
   addAssignmentCommentController,
   markSubmissionAsViewedController,
+  getTeacherSubjectsController,
+  getStudentSubjectsController,
 } = require('../../../controllers/academic/assignment.controller');
 const { createMulter } = require('../../../middlewares/fileUpload');
 
@@ -32,5 +34,8 @@ assignmentRouter.post(
 assignmentRouter.get('/assignments/teacher', getAssignmentsForTeacherController);
 assignmentRouter.post('/assignments/comment', addAssignmentCommentController);
 assignmentRouter.post('/assignments/view', markSubmissionAsViewedController);
+assignmentRouter.get('/assignments/teacher-subjects',getTeacherSubjectsController);
+
+  assignmentRouter.get('/assignments/student-subjects', getStudentSubjectsController);
 
 module.exports = assignmentRouter;

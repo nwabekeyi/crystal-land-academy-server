@@ -8,21 +8,24 @@ const { createMulter, deleteFromCloudinary } = require('../../middlewares/fileUp
 const upload = createMulter();
 
 exports.createAssignmentService = async (data, res) => {
-  const { id, session, term, classLevelId, subclass, title, dueDate, description, teacherId } = data;
+  const { id, session, term, classLevelId, subclass, title, dueDate, description, subjectId, teacherId } = data;
 
   try {
-    if (!id || !session || !term || !classLevelId || !title || !dueDate || !description || !teacherId) {
+    // Validate required fields
+    if (!id || !session || !term || !classLevelId || !title || !dueDate || !description || !subjectId || !teacherId) {
       return res.status(400).json({ status: 'failed', message: 'Missing required fields' });
     }
-    if (!mongoose.isValidObjectId(classLevelId) || !mongoose.isValidObjectId(teacherId)) {
-      return res.status(400).json({ status: 'failed', message: 'Invalid class or teacher ID' });
+    if (!mongoose.isValidObjectId(classLevelId) || !mongoose.isValidObjectId(teacherId) || !mongoose.isValidObjectId(subjectId)) {
+      return res.status(400).json({ status: 'failed', message: 'Invalid class, teacher, or subject ID' });
     }
 
+    // Validate teacher
     const teacher = await Teacher.findById(teacherId);
     if (!teacher) {
       return res.status(404).json({ status: 'failed', message: 'Teacher not found' });
     }
 
+    // Validate class level and teacher authorization
     const classLevel = await ClassLevel.findOne({
       _id: new mongoose.Types.ObjectId(classLevelId),
       'teachers.teacherId': new mongoose.Types.ObjectId(teacherId),
@@ -31,6 +34,36 @@ exports.createAssignmentService = async (data, res) => {
       return res.status(403).json({ status: 'failed', message: 'Teacher not authorized for this class' });
     }
 
+    // Validate subject and teacher authorization for the subject
+    const subject = await mongoose.model('Subject').findOne({
+      _id: new mongoose.Types.ObjectId(subjectId),
+      'classLevelSubclasses.classLevel': new mongoose.Types.ObjectId(classLevelId),
+      'classLevelSubclasses.teachers': new mongoose.Types.ObjectId(teacherId),
+    });
+    if (!subject) {
+      return res.status(403).json({
+        status: 'failed',
+        message: 'Teacher not authorized to create assignments for this subject in the specified class',
+      });
+    }
+
+    // Validate subclass if provided
+    if (subclass) {
+      if (!classLevel.subclasses.some((sub) => sub.letter === subclass)) {
+        return res.status(400).json({ status: 'failed', message: `Invalid subclass: ${subclass}` });
+      }
+      const subclassValid = subject.classLevelSubclasses.some(
+        (cls) => cls.classLevel.toString() === classLevelId && (!cls.subclassLetter || cls.subclassLetter === subclass)
+      );
+      if (!subclassValid) {
+        return res.status(400).json({
+          status: 'failed',
+          message: `Subclass ${subclass} is not valid for this subject in the specified class`,
+        });
+      }
+    }
+
+    // Validate academic year and session
     const academicYear = await mongoose.model('AcademicYear').findById(classLevel.academicYear);
     if (!academicYear) {
       return res.status(400).json({ status: 'failed', message: 'Invalid academic year' });
@@ -38,25 +71,26 @@ exports.createAssignmentService = async (data, res) => {
     if (academicYear.name !== session) {
       return res.status(400).json({ status: 'failed', message: 'Session does not match current academic year' });
     }
+
+    // Validate term
     const validTerms = ['1st Term', '2nd Term', '3rd Term'];
     if (!validTerms.includes(term)) {
       return res.status(400).json({ status: 'failed', message: 'Invalid term' });
     }
 
-    if (subclass && !classLevel.subclasses.some((sub) => sub.letter === subclass)) {
-      return res.status(400).json({ status: 'failed', message: `Invalid subclass: ${subclass}` });
-    }
-
+    // Check for duplicate assignment ID
     const existingAssignment = await Assignment.findOne({ id });
     if (existingAssignment) {
       return res.status(409).json({ status: 'failed', message: `Assignment ID ${id} already exists` });
     }
 
+    // Validate due date
     const parsedDueDate = new Date(dueDate);
     if (isNaN(parsedDueDate) || parsedDueDate <= new Date()) {
       return res.status(400).json({ status: 'failed', message: 'Invalid or past due date' });
     }
 
+    // Create new assignment
     const assignment = new Assignment({
       id,
       session,
@@ -66,6 +100,7 @@ exports.createAssignmentService = async (data, res) => {
       title,
       dueDate: parsedDueDate,
       description,
+      subjectId: new mongoose.Types.ObjectId(subjectId),
       submissions: [],
       teacherId: new mongoose.Types.ObjectId(teacherId),
     });
@@ -78,7 +113,7 @@ exports.createAssignmentService = async (data, res) => {
   }
 };
 
-exports.getAssignmentsForStudentService = async (studentId, res) => {
+exports.getAssignmentsForStudentService = async (studentId, query, res) => {
   try {
     if (!mongoose.isValidObjectId(studentId)) {
       return res.status(400).json({ status: 'failed', message: `Invalid student ID: ${studentId}` });
@@ -101,10 +136,13 @@ exports.getAssignmentsForStudentService = async (studentId, res) => {
     if (student.currentClassLevel?.subclass) {
       filter.subclass = student.currentClassLevel.subclass;
     }
+    if (query.subjectId && mongoose.isValidObjectId(query.subjectId)) {
+      filter.subjectId = new mongoose.Types.ObjectId(query.subjectId);
+    }
 
     const assignments = await Assignment.find(filter)
       .populate('submissions.studentId', 'firstName lastName')
-      .select('id session term classLevelId subclass title dueDate description submissions')
+      .select('id session term classLevelId subclass title dueDate description subjectId submissions')
       .lean();
 
     if (!assignments.length) {
@@ -181,7 +219,7 @@ exports.submitAssignmentService = async (req, res) => {
       return res.status(404).json({ status: 'failed', message: 'Student not found' });
     }
 
-    const cloudinaryLink = req.file.path; // Assumes fileUpload middleware sets path to Cloudinary URL
+    const cloudinaryLink = req.file.path;
     const existingSubmission = assignment.submissions.find(
       (sub) => sub.studentId._id.toString() === studentId
     );
@@ -273,6 +311,20 @@ exports.getAssignmentsForTeacherService = async (teacherId, query, res) => {
     if (query.term) filter.term = query.term;
     if (query.session) filter.session = query.session;
     if (query.subclass) filter.subclass = query.subclass;
+    if (query.subjectId && mongoose.isValidObjectId(query.subjectId)) {
+      filter.subjectId = new mongoose.Types.ObjectId(query.subjectId);
+      const subject = await mongoose.model('Subject').findOne({
+        _id: new mongoose.Types.ObjectId(query.subjectId),
+        'classLevelSubclasses.classLevel': { $in: classLevelIds.map((c) => c._id) },
+        'classLevelSubclasses.teachers': new mongoose.Types.ObjectId(teacherId),
+      });
+      if (!subject) {
+        return res.status(403).json({
+          status: 'failed',
+          message: 'Teacher not authorized for this subject',
+        });
+      }
+    }
 
     const page = parseInt(query.page) || 1;
     const limit = parseInt(query.limit) || 10;
@@ -347,7 +399,7 @@ exports.addAssignmentCommentService = async (data, res) => {
     assignment.submissions[submissionIndex].comments = comments;
     assignment.submissions[submissionIndex].viewed = true;
     assignment.submissions[submissionIndex].viewedAt = new Date();
-    assignment.submissions[submissionIndex].deletionScheduledAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+    assignment.submissions[submissionIndex].deletionScheduledAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await assignment.save();
 
@@ -400,7 +452,7 @@ exports.markSubmissionAsViewedService = async (data, res) => {
 
     assignment.submissions[submissionIndex].viewed = true;
     assignment.submissions[submissionIndex].viewedAt = new Date();
-    assignment.submissions[submissionIndex].deletionScheduledAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days from now
+    assignment.submissions[submissionIndex].deletionScheduledAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
 
     await assignment.save();
 
@@ -415,6 +467,62 @@ exports.markSubmissionAsViewedService = async (data, res) => {
     });
   } catch (error) {
     console.error('Mark Submission Viewed Error:', error.message, error.stack);
+    return res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
+
+exports.getTeacherSubjectsService = async (teacherId, res) => {
+  try {
+    if (!mongoose.isValidObjectId(teacherId)) {
+      return res.status(400).json({ status: 'failed', message: 'Invalid teacher ID' });
+    }
+
+    const subjects = await mongoose.model('Subject').find({
+      'classLevelSubclasses.teachers': new mongoose.Types.ObjectId(teacherId),
+    })
+      .populate('name', 'name') // Assuming Subject.name is a reference to SubjectName
+      .lean();
+
+    return res.status(200).json({
+      status: 'success',
+      data: subjects.map((subject) => ({
+        _id: subject._id,
+        name: subject.name.name, // Adjust based on your SubjectName schema
+        description: subject.description,
+        classLevelSubclasses: subject.classLevelSubclasses,
+      })),
+    });
+  } catch (error) {
+    console.error('Get Teacher Subjects Error:', error.message, error.stack);
+    return res.status(500).json({ status: 'error', message: error.message });
+  }
+};
+
+exports.getStudentSubjectsService = async (studentId, res) => {
+  try {
+    if (!mongoose.isValidObjectId(studentId)) {
+      return res.status(400).json({ status: 'failed', message: 'Invalid student ID' });
+    }
+
+    // Find subjects where the student's classLevel is included in classLevelSubclasses
+    const subjects = await mongoose.model('Subject').find({
+      'classLevelSubclasses.classLevel': {
+        $in: await mongoose.model('ClassLevel').find({ students: new mongoose.Types.ObjectId(studentId) }).distinct('_id'),
+      },
+    }).lean();
+
+    return res.status(200).json({
+      status: 'success',
+      data: subjects.map((subject) => ({
+        _id: subject._id,
+        name: subject.name.name || subject.name, // Handle both name structures
+        description: subject.description,
+        classLevelSubclasses: subject.classLevelSubclasses,
+      })),
+    });
+  } catch (error) {
+    console.error('Get Student Subjects Error:', error.message, error.stack);
     return res.status(500).json({ status: 'error', message: error.message });
   }
 };
