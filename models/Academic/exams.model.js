@@ -85,6 +85,21 @@ const examSchema = new mongoose.Schema(
     startTime: {
       type: String,
     },
+    completedBy: [
+      {
+        student: {
+          type: ObjectId,
+          ref: "Student",
+        },
+        completedDate: {
+          type: Date,
+          default: Date.now,
+        },
+        completedTime: {
+          type: String,
+        },
+      },
+    ],
   },
   { timestamps: true }
 );
