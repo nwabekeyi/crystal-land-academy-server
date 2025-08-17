@@ -330,3 +330,21 @@ exports.deleteAcademicYearService = async (res, id) => {
    return responseStatus(res, 500, "error", "Failed to delete academic year: " + error.message);
  }
 };
+
+// services/academic/academicYear.service.js
+/**
+ * Get all academic years without students, teachers, and academic terms service.
+ * @param {Object} res - The Express response object.
+ * @returns {Object} - Response status with academic years data excluding specified fields.
+ */
+exports.getAcademicYearsMinimalService = async (res) => {
+  try {
+    const academicYears = await AcademicYear.find()
+      .select('-students -teachers -academicTerms') // Exclude fields
+      .lean();
+    return responseStatus(res, 200, "success", academicYears);
+  } catch (error) {
+    console.error("Error fetching minimal academic years:", error);
+    return responseStatus(res, 500, "error", "Failed to fetch academic years");
+  }
+};

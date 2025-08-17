@@ -65,6 +65,10 @@ const examResultSchema = new mongoose.Schema(
       ref: "AcademicYear",
       required: true,
     },
+    subclass: {
+      type: String,
+      match: /^[A-Z]$/,
+    },
     isPublished: {
       type: Boolean,
       default: false,
@@ -74,6 +78,9 @@ const examResultSchema = new mongoose.Schema(
     timestamps: true,
   }
 );
+
+examResultSchema.index({ exam: 1, student: 1 }, { unique: true });
+examResultSchema.index({ academicYear: 1, academicTerm: 1, classLevel: 1, subclass: 1, subject: 1 });
 
 const ExamResult = mongoose.model("ExamResult", examResultSchema);
 

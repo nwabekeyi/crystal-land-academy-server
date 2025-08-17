@@ -6,28 +6,61 @@ const ClassLevel = require("../../models/Academic/class.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Admin = require("../../models/Staff/admin.model");
 const Student = require("../../models/Students/students.model");
-const ExamResult = require('../../models/Academic/results.model')
+const AcademicYear = require('../../models/Academic/academicYear.model')
 
 // Helper function to check for exam conflicts (same date or startDate for same subclass)
 async function checkExamDateConflict(res, data, examId = null) {
   const { classLevel, subclassLetter, examDate, startDate } = data;
-  const query = {
-    classLevel,
-    subclassLetter: subclassLetter || null,
-    $or: [
-      { examDate: new Date(examDate) },
-      startDate ? { startDate: new Date(startDate) } : null,
-    ].filter(Boolean),
-  };
-
-  if (examId) {
-    query._id = { $ne: examId }; // Exclude the current exam when updating
+  const classLevelDoc = await ClassLevel.findById(classLevel);
+  if (!classLevelDoc) {
+    responseStatus(res, 404, "failed", "Class level not found");
+    return true;
   }
 
-  const conflictingExam = await Exams.findOne(query);
-  if (conflictingExam) {
-    responseStatus(res, 400, "failed", "Another exam/test is already scheduled on this date or start date for the same class/subclass");
-    return true;
+  const isSSClass = ["SS 1", "SS 2", "SS 3"].includes(classLevelDoc.name);
+  const subclassLetters = isSSClass && subclassLetter ? (Array.isArray(subclassLetter) ? subclassLetter : [subclassLetter]) : [];
+
+  // For SS classes, check conflicts for any subclass letter in the array
+  if (isSSClass && subclassLetters.length > 0) {
+    const query = {
+      classLevel,
+      subclassLetter: { $in: subclassLetters },
+      $or: [
+        { examDate: new Date(examDate) },
+        startDate ? { startDate: new Date(startDate) } : null,
+      ].filter(Boolean),
+    };
+
+    if (examId) {
+      query._id = { $ne: examId }; // Exclude the current exam when updating
+    }
+
+    const conflictingExam = await Exams.findOne(query);
+    if (conflictingExam) {
+      const conflictingSubclasses = conflictingExam.subclassLetter.filter((letter) => subclassLetters.includes(letter));
+      responseStatus(res, 400, "failed", `Another exam/test is already scheduled on this date or start date for subclasses: ${conflictingSubclasses.join(", ")}`);
+      return true;
+    }
+  } else {
+    // For non-SS classes, check conflicts with empty subclassLetter array
+    const query = {
+      classLevel,
+      subclassLetter: { $size: 0 },
+      $or: [
+        { examDate: new Date(examDate) },
+        startDate ? { startDate: new Date(startDate) } : null,
+      ].filter(Boolean),
+    };
+
+    if (examId) {
+      query._id = { $ne: examId }; // Exclude the current exam when updating
+    }
+
+    const conflictingExam = await Exams.findOne(query);
+    if (conflictingExam) {
+      responseStatus(res, 400, "failed", "Another exam/test is already scheduled on this date or start date for this class");
+      return true;
+    }
   }
   return false;
 }
@@ -35,14 +68,26 @@ async function checkExamDateConflict(res, data, examId = null) {
 // Helper function to check for single exam per subject per term (if examType is "exam")
 async function checkSingleExamPerSubject(res, data, examId = null) {
   const { subject, classLevel, academicTerm, academicYear, examType, subclassLetter } = data;
-  if (examType === "exam") {
+  if (examType !== "exam") return false;
+
+  const classLevelDoc = await ClassLevel.findById(classLevel);
+  if (!classLevelDoc) {
+    responseStatus(res, 404, "failed", "Class level not found");
+    return true;
+  }
+
+  const isSSClass = ["SS 1", "SS 2", "SS 3"].includes(classLevelDoc.name);
+  const subclassLetters = isSSClass && subclassLetter ? (Array.isArray(subclassLetter) ? subclassLetter : [subclassLetter]) : [];
+
+  // For SS classes, check for existing exams with any overlapping subclass letters
+  if (isSSClass && subclassLetters.length > 0) {
     const query = {
       subject,
       classLevel,
       academicTerm,
       academicYear,
       examType: "exam",
-      subclassLetter: subclassLetter || null,
+      subclassLetter: { $in: subclassLetters },
     };
 
     if (examId) {
@@ -51,7 +96,28 @@ async function checkSingleExamPerSubject(res, data, examId = null) {
 
     const existingExam = await Exams.findOne(query);
     if (existingExam) {
-      responseStatus(res, 400, "failed", "An exam of type 'exam' already exists for this subject in the same term");
+      const overlappingSubclasses = existingExam.subclassLetter.filter((letter) => subclassLetters.includes(letter));
+      responseStatus(res, 400, "failed", `An exam of type 'exam' already exists for this subject in the same term for subclasses: ${overlappingSubclasses.join(", ")}`);
+      return true;
+    }
+  } else {
+    // For non-SS classes, check for existing exams with empty subclassLetter array
+    const query = {
+      subject,
+      classLevel,
+      academicTerm,
+      academicYear,
+      examType: "exam",
+      subclassLetter: { $size: 0 },
+    };
+
+    if (examId) {
+      query._id = { $ne: examId }; // Exclude the current exam when updating
+    }
+
+    const existingExam = await Exams.findOne(query);
+    if (existingExam) {
+      responseStatus(res, 400, "failed", "An exam of type 'exam' already exists for this subject in the same term for this class");
       return true;
     }
   }
@@ -103,6 +169,27 @@ const teacherCreateExamService = async (res, data, teacherId) => {
     return null;
   }
 
+  // Validate subclassLetter for SS classes
+  const isSSClass = ["SS 1", "SS 2", "SS 3"].includes(classLevelDoc.name);
+  const subclassLetters = subclassLetter ? (Array.isArray(subclassLetter) ? subclassLetter : [subclassLetter]) : [];
+  if (isSSClass && subclassLetters.length === 0) {
+    responseStatus(res, 400, "failed", "At least one subclass letter is required for SS classes");
+    return null;
+  }
+  if (isSSClass && subclassLetters.length > 0) {
+    const invalidSubclasses = subclassLetters.filter(
+      (letter) => !classLevelDoc.subclasses.some((sub) => sub.letter === letter)
+    );
+    if (invalidSubclasses.length > 0) {
+      responseStatus(res, 400, "failed", `Invalid subclass letter(s) for this class: ${invalidSubclasses.join(", ")}`);
+      return null;
+    }
+  }
+  if (!isSSClass && subclassLetters.length > 0) {
+    responseStatus(res, 400, "failed", "Subclass letters are not allowed for non-SS classes");
+    return null;
+  }
+
   // Check if teacher is assigned to the subject and class
   const isAssigned = await checkTeacherAssignment(teacherId, subject, classLevel);
   if (!isAssigned) {
@@ -110,33 +197,46 @@ const teacherCreateExamService = async (res, data, teacherId) => {
     return null;
   }
 
+  // Validate duration
+  if (!Number.isInteger(duration) || duration <= 0) {
+    responseStatus(res, 400, "failed", "Duration must be a positive integer (in minutes)");
+    return null;
+  }
+
   // Check for existing exam with same details
-  const examExist = await Exams.findOne({
+  const query = {
     name,
     subject,
     classLevel,
     academicTerm,
     academicYear,
-    subclassLetter: subclassLetter || null,
-  });
+  };
+  if (isSSClass) {
+    query.subclassLetter = { $in: subclassLetters };
+  } else {
+    query.subclassLetter = { $size: 0 };
+  }
+  const examExist = await Exams.findOne(query);
   if (examExist) {
-    responseStatus(res, 400, "failed", "Exam already exists with these details");
+    const overlappingSubclasses = isSSClass ? examExist.subclassLetter.filter((letter) => subclassLetters.includes(letter)) : [];
+    responseStatus(
+      res,
+      400,
+      "failed",
+      isSSClass
+        ? `Exam already exists with these details for subclasses: ${overlappingSubclasses.join(", ")}`
+        : "Exam already exists with these details for this class"
+    );
     return null;
   }
 
   // Check for single exam per subject per term (if examType is "exam")
-  if (await checkSingleExamPerSubject(res, data)) {
+  if (await checkSingleExamPerSubject(res, { ...data, subclassLetter: subclassLetters })) {
     return null;
   }
 
   // Check for date conflicts
-  if (await checkExamDateConflict(res, data)) {
-    return null;
-  }
-
-  // Validate duration
-  if (!Number.isInteger(duration) || duration <= 0) {
-    responseStatus(res, 400, "failed", "Duration must be a positive integer (in minutes)");
+  if (await checkExamDateConflict(res, { ...data, subclassLetter: subclassLetters })) {
     return null;
   }
 
@@ -156,7 +256,7 @@ const teacherCreateExamService = async (res, data, teacherId) => {
     examType,
     examStatus: "pending",
     createdBy: teacherId,
-    subclassLetter: subclassLetter || null,
+    subclassLetter: isSSClass ? subclassLetters : [],
     startDate: startDate || null,
     startTime: startTime || null,
   });
@@ -171,7 +271,8 @@ const teacherCreateExamService = async (res, data, teacherId) => {
 
 // Teacher: Get All Exams
 const teacherGetAllExamsService = async (res, teacherId, filters = {}) => {
-  const teacher = await Teacher.findById(teacherId);
+  // Validate teacher
+  const teacher = await Teacher.findById(teacherId).lean();
   if (!teacher) {
     responseStatus(res, 404, "failed", "Teacher not found");
     return null;
@@ -183,20 +284,53 @@ const teacherGetAllExamsService = async (res, teacherId, filters = {}) => {
     return null;
   }
 
-  const query = { createdBy: teacherId };
+  // Find the current academic year
+  const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true }).lean();
+  if (!currentAcademicYear) {
+    responseStatus(res, 404, "failed", "No current academic year found");
+    return null;
+  }
+
+  // Build query
+  const query = {
+    createdBy: teacherId,
+    academicYear: currentAcademicYear._id,
+  };
   if (filters.classLevel) query.classLevel = filters.classLevel;
   if (filters.subject) query.subject = filters.subject;
   if (filters.examStatus) query.examStatus = filters.examStatus;
-  if (filters.academicYear) query.academicYear = filters.academicYear;
   if (filters.academicTerm) query.academicTerm = filters.academicTerm;
-  if (filters.subclassLetter) query.subclassLetter = filters.subclassLetter;
+  if (filters.subclassLetter) query.subclassLetter = { $in: Array.isArray(filters.subclassLetter) ? filters.subclassLetter : [filters.subclassLetter] };
 
+  // Fetch exams
   const exams = await Exams.find(query)
-    .populate("subject")
-    .populate("classLevel")
-    .populate("academicTerm")
-    .populate("academicYear")
-    .populate("createdBy", "firstName lastName teacherId");
+    .populate({
+      path: "subject",
+      select: "name",
+    })
+    .populate({
+      path: "classLevel",
+      select: "name",
+    })
+    .populate({
+      path: "academicTerm",
+      select: "name",
+    })
+    .populate({
+      path: "academicYear",
+      select: "name fromYear toYear",
+    })
+    .populate({
+      path: "createdBy",
+      select: "firstName lastName teacherId",
+    })
+    .lean()
+    .sort({ createdAt: -1 });
+
+  if (!exams.length) {
+    responseStatus(res, 404, "failed", "No exams found for the current academic year");
+    return null;
+  }
 
   return exams;
 };
@@ -282,10 +416,30 @@ const teacherUpdateExamService = async (res, data, examId, teacherId) => {
       return null;
     }
   }
-  if (data.classLevel) {
-    const classLevelDoc = await ClassLevel.findById(data.classLevel);
+  if (data.classLevel || data.subclassLetter !== undefined) {
+    const classLevelDoc = await ClassLevel.findById(data.classLevel || exam.classLevel);
     if (!classLevelDoc) {
       responseStatus(res, 404, "failed", "Class level not found");
+      return null;
+    }
+    // Validate subclassLetter for SS classes
+    const isSSClass = ["SS 1", "SS 2", "SS 3"].includes(classLevelDoc.name);
+    const subclassLetters = data.subclassLetter ? (Array.isArray(data.subclassLetter) ? data.subclassLetter : [data.subclassLetter]) : exam.subclassLetter;
+    if (isSSClass && (!subclassLetters || subclassLetters.length === 0)) {
+      responseStatus(res, 400, "failed", "At least one subclass letter is required for SS classes");
+      return null;
+    }
+    if (isSSClass && subclassLetters.length > 0) {
+      const invalidSubclasses = subclassLetters.filter(
+        (letter) => !classLevelDoc.subclasses.some((sub) => sub.letter === letter)
+      );
+      if (invalidSubclasses.length > 0) {
+        responseStatus(res, 400, "failed", `Invalid subclass letter(s) for this class: ${invalidSubclasses.join(", ")}`);
+        return null;
+      }
+    }
+    if (!isSSClass && subclassLetters.length > 0) {
+      responseStatus(res, 400, "failed", "Subclass letters are not allowed for non-SS classes");
       return null;
     }
   }
@@ -297,18 +451,31 @@ const teacherUpdateExamService = async (res, data, examId, teacherId) => {
   }
 
   // Check for duplicate exam
-  const examDuplicate = await Exams.findOne({
+  const subclassLettersToCheck = data.subclassLetter ? (Array.isArray(data.subclassLetter) ? data.subclassLetter : [data.subclassLetter]) : exam.subclassLetter;
+  const query = {
     name: data.name || exam.name,
     subject: data.subject || exam.subject,
     classLevel: data.classLevel || exam.classLevel,
     academicTerm: data.academicTerm || exam.academicTerm,
     academicYear: data.academicYear || exam.academicYear,
-    subclassLetter: data.subclassLetter || exam.subclassLetter,
     _id: { $ne: examId },
-  });
-
+  };
+  if (["SS 1", "SS 2", "SS 3"].includes((await ClassLevel.findById(data.classLevel || exam.classLevel)).name)) {
+    query.subclassLetter = { $in: subclassLettersToCheck };
+  } else {
+    query.subclassLetter = { $size: 0 };
+  }
+  const examDuplicate = await Exams.findOne(query);
   if (examDuplicate) {
-    responseStatus(res, 400, "failed", "Exam with these details already exists");
+    const overlappingSubclasses = query.subclassLetter.$in ? examDuplicate.subclassLetter.filter((letter) => subclassLettersToCheck.includes(letter)) : [];
+    responseStatus(
+      res,
+      400,
+      "failed",
+      query.subclassLetter.$in
+        ? `Exam with these details already exists for subclasses: ${overlappingSubclasses.join(", ")}`
+        : "Exam with these details already exists for this class"
+    );
     return null;
   }
 
@@ -328,9 +495,10 @@ const teacherUpdateExamService = async (res, data, examId, teacherId) => {
     return null;
   }
 
+  // Update exam
   const examUpdated = await Exams.findByIdAndUpdate(
     examId,
-    { $set: { ...data, startDate: data.startDate || null, startTime: data.startTime || null } },
+    { $set: { ...data, subclassLetter: data.subclassLetter !== undefined ? subclassLettersToCheck : exam.subclassLetter, startDate: data.startDate || null, startTime: data.startTime || null } },
     { new: true, runValidators: true }
   );
 
@@ -651,33 +819,67 @@ const adminCreateExamService = async (res, data, adminId) => {
     return null;
   }
 
-  // Check for existing exam with same details
-  const examExist = await Exams.findOne({
-    name,
-    subject,
-    classLevel,
-    academicTerm,
-    academicYear,
-    subclassLetter: subclassLetter || null,
-  });
-  if (examExist) {
-    responseStatus(res, 400, "failed", "Exam already exists with these details");
+  // Validate subclassLetter for SS classes
+  const isSSClass = ["SS 1", "SS 2", "SS 3"].includes(classLevelDoc.name);
+  const subclassLetters = subclassLetter ? (Array.isArray(subclassLetter) ? subclassLetter : [subclassLetter]) : [];
+  if (isSSClass && subclassLetters.length === 0) {
+    responseStatus(res, 400, "failed", "At least one subclass letter is required for SS classes");
     return null;
   }
-
-  // Check for single exam per subject per term (if examType is "exam")
-  if (await checkSingleExamPerSubject(res, data)) {
-    return null;
+  if (isSSClass && subclassLetters.length > 0) {
+    const invalidSubclasses = subclassLetters.filter(
+      (letter) => !classLevelDoc.subclasses.some((sub) => sub.letter === letter)
+    );
+    if (invalidSubclasses.length > 0) {
+      responseStatus(res, 400, "failed", `Invalid subclass letter(s) for this class: ${invalidSubclasses.join(", ")}`);
+      return null;
+    }
   }
-
-  // Check for date conflicts
-  if (await checkExamDateConflict(res, data)) {
+  if (!isSSClass && subclassLetters.length > 0) {
+    responseStatus(res, 400, "failed", "Subclass letters are not allowed for non-SS classes");
     return null;
   }
 
   // Validate duration
   if (!Number.isInteger(duration) || duration <= 0) {
     responseStatus(res, 400, "failed", "Duration must be a positive integer (in minutes)");
+    return null;
+  }
+
+  // Check for existing exam with same details
+  const query = {
+    name,
+    subject,
+    classLevel,
+    academicTerm,
+    academicYear,
+  };
+  if (isSSClass) {
+    query.subclassLetter = { $in: subclassLetters };
+  } else {
+    query.subclassLetter = { $size: 0 };
+  }
+  const examExist = await Exams.findOne(query);
+  if (examExist) {
+    const overlappingSubclasses = isSSClass ? examExist.subclassLetter.filter((letter) => subclassLetters.includes(letter)) : [];
+    responseStatus(
+      res,
+      400,
+      "failed",
+      isSSClass
+        ? `Exam already exists with these details for subclasses: ${overlappingSubclasses.join(", ")}`
+        : "Exam already exists with these details for this class"
+    );
+    return null;
+  }
+
+  // Check for single exam per subject per term (if examType is "exam")
+  if (await checkSingleExamPerSubject(res, { ...data, subclassLetter: subclassLetters })) {
+    return null;
+  }
+
+  // Check for date conflicts
+  if (await checkExamDateConflict(res, { ...data, subclassLetter: subclassLetters })) {
     return null;
   }
 
@@ -697,7 +899,7 @@ const adminCreateExamService = async (res, data, adminId) => {
     examType,
     examStatus: "pending",
     createdBy: adminId,
-    subclassLetter: subclassLetter || null,
+    subclassLetter: isSSClass ? subclassLetters : [],
     startDate: startDate || null,
     startTime: startTime || null,
   });
@@ -725,7 +927,7 @@ const adminGetAllExamsService = async (res, adminId, filters = {}) => {
   if (filters.academicYear) query.academicYear = filters.academicYear;
   if (filters.academicTerm) query.academicTerm = filters.academicTerm;
   if (filters.createdBy) query.createdBy = filters.createdBy;
-  if (filters.subclassLetter) query.subclassLetter = filters.subclassLetter;
+  if (filters.subclassLetter) query.subclassLetter = { $in: Array.isArray(filters.subclassLetter) ? filters.subclassLetter : [filters.subclassLetter] };
 
   const exams = await Exams.find(query)
     .populate("subject")
@@ -782,10 +984,30 @@ const adminUpdateExamService = async (res, data, examId, adminId) => {
       return null;
     }
   }
-  if (data.classLevel) {
-    const classLevelDoc = await ClassLevel.findById(data.classLevel);
+  if (data.classLevel || data.subclassLetter !== undefined) {
+    const classLevelDoc = await ClassLevel.findById(data.classLevel || exam.classLevel);
     if (!classLevelDoc) {
       responseStatus(res, 404, "failed", "Class level not found");
+      return null;
+    }
+    // Validate subclassLetter for SS classes
+    const isSSClass = ["SS 1", "SS 2", "SS 3"].includes(classLevelDoc.name);
+    const subclassLetters = data.subclassLetter ? (Array.isArray(data.subclassLetter) ? data.subclassLetter : [data.subclassLetter]) : exam.subclassLetter;
+    if (isSSClass && (!subclassLetters || subclassLetters.length === 0)) {
+      responseStatus(res, 400, "failed", "At least one subclass letter is required for SS classes");
+      return null;
+    }
+    if (isSSClass && subclassLetters.length > 0) {
+      const invalidSubclasses = subclassLetters.filter(
+        (letter) => !classLevelDoc.subclasses.some((sub) => sub.letter === letter)
+      );
+      if (invalidSubclasses.length > 0) {
+        responseStatus(res, 400, "failed", `Invalid subclass letter(s) for this class: ${invalidSubclasses.join(", ")}`);
+        return null;
+      }
+    }
+    if (!isSSClass && subclassLetters.length > 0) {
+      responseStatus(res, 400, "failed", "Subclass letters are not allowed for non-SS classes");
       return null;
     }
   }
@@ -797,18 +1019,31 @@ const adminUpdateExamService = async (res, data, examId, adminId) => {
   }
 
   // Check for duplicate exam
-  const examDuplicate = await Exams.findOne({
+  const subclassLettersToCheck = data.subclassLetter ? (Array.isArray(data.subclassLetter) ? data.subclassLetter : [data.subclassLetter]) : exam.subclassLetter;
+  const query = {
     name: data.name || exam.name,
     subject: data.subject || exam.subject,
     classLevel: data.classLevel || exam.classLevel,
     academicTerm: data.academicTerm || exam.academicTerm,
     academicYear: data.academicYear || exam.academicYear,
-    subclassLetter: data.subclassLetter || exam.subclassLetter,
     _id: { $ne: examId },
-  });
-
+  };
+  if (["SS 1", "SS 2", "SS 3"].includes((await ClassLevel.findById(data.classLevel || exam.classLevel)).name)) {
+    query.subclassLetter = { $in: subclassLettersToCheck };
+  } else {
+    query.subclassLetter = { $size: 0 };
+  }
+  const examDuplicate = await Exams.findOne(query);
   if (examDuplicate) {
-    responseStatus(res, 400, "failed", "Exam with these details already exists");
+    const overlappingSubclasses = query.subclassLetter.$in ? examDuplicate.subclassLetter.filter((letter) => subclassLettersToCheck.includes(letter)) : [];
+    responseStatus(
+      res,
+      400,
+      "failed",
+      query.subclassLetter.$in
+        ? `Exam with these details already exists for subclasses: ${overlappingSubclasses.join(", ")}`
+        : "Exam with these details already exists for this class"
+    );
     return null;
   }
 
@@ -828,9 +1063,10 @@ const adminUpdateExamService = async (res, data, examId, adminId) => {
     return null;
   }
 
+  // Update exam
   const examUpdated = await Exams.findByIdAndUpdate(
     examId,
-    { $set: { ...data, startDate: data.startDate || null, startTime: data.startTime || null } },
+    { $set: { ...data, subclassLetter: data.subclassLetter !== undefined ? subclassLettersToCheck : exam.subclassLetter, startDate: data.startDate || null, startTime: data.startTime || null } },
     { new: true, runValidators: true }
   );
 
@@ -1140,8 +1376,7 @@ async function checkTeacherAssignment(teacherId, subjectId, classLevelId) {
   return assignment.teachers.some((t) => t.toString() === teacherId);
 }
 
-
-// Student: Get Questions for Approved Exams by Class Level and Subclass
+// Student: Get Questions by Class
 const studentGetQuestionsByClassService = async (res, classLevelId, subclassLetter, studentId) => {
   // Validate student
   const student = await Student.findById(studentId);
@@ -1157,29 +1392,47 @@ const studentGetQuestionsByClassService = async (res, classLevelId, subclassLett
     return null;
   }
 
-  // For SS classes, validate subclassLetter
-  if (["SS 1", "SS 2", "SS 3"].includes(classLevel.name) && !subclassLetter) {
-    responseStatus(res, 400, "failed", "Subclass letter is required for SS classes");
+  // Normalize subclassLetter to an array
+  const subclassLetters = subclassLetter ? (Array.isArray(subclassLetter) ? subclassLetter : [subclassLetter]) : [];
+
+  // For SS classes, validate subclassLetter(s)
+  const isSSClass = ["SS 1", "SS 2", "SS 3"].includes(classLevel.name);
+  if (isSSClass && subclassLetters.length === 0) {
+    responseStatus(res, 400, "failed", "At least one subclass letter is required for SS classes");
     return null;
   }
-  if (subclassLetter && !classLevel.subclasses.some((sub) => sub.letter === subclassLetter)) {
-    responseStatus(res, 400, "failed", "Invalid subclass letter for this class");
-    return null;
+  if (isSSClass && subclassLetters.length > 0) {
+    const invalidSubclasses = subclassLetters.filter(
+      (letter) => !classLevel.subclasses.some((sub) => sub.letter === letter)
+    );
+    if (invalidSubclasses.length > 0) {
+      responseStatus(res, 400, "failed", `Invalid subclass letter(s) for this class: ${invalidSubclasses.join(", ")}`);
+      return null;
+    }
   }
 
-  // Query approved exams for the class level and subclass
+  // Build query for approved exams
   const query = {
     classLevel: classLevelId,
     examStatus: "approved",
-    subclassLetter: subclassLetter || null,
   };
+
+  // For SS classes, match any of the provided subclassLetters
+  if (isSSClass) {
+    query.subclassLetter = { $in: subclassLetters };
+  } else {
+    // For non-SS classes, include exams with empty subclassLetter array
+    query.subclassLetter = { $size: 0 };
+  }
+
+  console.log("Query:", query);
 
   const exams = await Exams.find(query)
     .populate({
       path: "subject",
       populate: { path: "name", select: "name" },
     })
-    .select("_id name examType examDate examTime duration questions completedBy");
+    .select("_id name examType examDate examTime duration questions completedBy subclassLetter");
 
   if (!exams || exams.length === 0) {
     responseStatus(res, 404, "failed", "No approved exams found for this class/subclass");
@@ -1246,6 +1499,7 @@ const studentGetQuestionsByClassService = async (res, classLevelId, subclassLett
       examTime: exam.examTime,
       duration: exam.duration,
       questions: examQuestions,
+      subclassLetter: exam.subclassLetter, // Include subclassLetter in response
     });
 
     return acc;
@@ -1254,11 +1508,10 @@ const studentGetQuestionsByClassService = async (res, classLevelId, subclassLett
   // Format final response
   return {
     classLevel: classLevel.name,
-    subclassLetter: subclassLetter || null,
+    subclassLetter: subclassLetter || null, // Return original subclassLetter input
     subjects: groupedBySubject,
   };
 };
-
 
 module.exports = {
   teacherCreateExamService,

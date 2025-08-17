@@ -10,6 +10,8 @@ const {
   studentCreateExamResultController,
   studentCheckExamResultController,
   getAllExamResultsController,
+  teacherGetSingleExamResultsController,
+  adminGetAllExamResultsController,
   adminPublishResultsController,
   adminUnPublishResultsController,
 } = require("../../../controllers/academic/results.controller");
@@ -28,6 +30,16 @@ resultsRouter
 resultsRouter
   .route("/exam-results/:classLevelId")
   .get(isLoggedIn, isTeacher, getAllExamResultsController);
+
+// Teacher: Get results for a single exam
+resultsRouter
+  .route("/exam-results/exam/:examId")
+  .get(isLoggedIn, isTeacher, teacherGetSingleExamResultsController);
+
+// Admin: Get all exam results with filters and pagination
+resultsRouter
+  .route("/exam-results/admin")
+  .get(isLoggedIn, isAdmin, adminGetAllExamResultsController);
 
 // Admin: Publish exam results
 resultsRouter

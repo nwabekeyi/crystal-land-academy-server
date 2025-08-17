@@ -3,18 +3,21 @@ const Question = require("../../models/Academic/questions.model");
 const Student = require("../../models/Students/students.model");
 const Results = require("../../models/Academic/results.model");
 const responseStatus = require("../../handlers/responseStatus.handler");
+const AcademicYear = require('../../models/Academic/academicYear.model')
 
-// Student: Create Exam Result
 // Student: Create Exam Result
 const studentCreateExamResultService = async (res, data, studentId) => {
   const { examId, answeredQuestions, completedTime } = data;
 
-  // Validate student
+  // Validate student and fetch subclass
   const student = await Student.findById(studentId);
   if (!student) {
     responseStatus(res, 404, "failed", "Student not found");
     return null;
   }
+
+  // Get subclass from student's currentClassLevel
+  const subclass = student.currentClassLevel?.subclass || null;
 
   // Validate exam
   const exam = await Exams.findById(examId)
@@ -128,7 +131,7 @@ const studentCreateExamResultService = async (res, data, studentId) => {
     { new: true }
   );
 
-  // Create exam result
+  // Create exam result with subclass
   const result = await Results.create({
     student: studentId,
     exam: examId,
@@ -143,6 +146,7 @@ const studentCreateExamResultService = async (res, data, studentId) => {
     classLevel: exam.classLevel,
     academicTerm: exam.academicTerm,
     academicYear: exam.academicYear,
+    subclass, // Add subclass from student
     isPublished: false,
   });
 
@@ -217,6 +221,130 @@ const getAllExamResultsService = async (classId, teacherId, res) => {
   return result;
 };
 
+// Teacher: Get Results for a Single Exam
+// Teacher: Get Results for a Single Exam
+const teacherGetSingleExamResultsService = async (examId, teacherId, res) => {
+  const mongoose = require("mongoose");
+
+  // Validate examId
+  if (!mongoose.isValidObjectId(examId)) {
+    responseStatus(res, 400, "failed", "Invalid exam ID");
+    return null;
+  }
+
+  // Validate teacher
+  const teacher = await require("../../models/Staff/teachers.model").findById(teacherId).lean();
+  if (!teacher) {
+    responseStatus(res, 404, "failed", "Teacher not found");
+    return null;
+  }
+
+  // Find the current academic year
+  const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true }).lean();
+  if (!currentAcademicYear) {
+    responseStatus(res, 404, "failed", "No current academic year found");
+    return null;
+  }
+
+  // Validate exam and ensure teacher is the creator and exam is in current academic year
+  const exam = await Exams.findOne({
+    _id: examId,
+    createdBy: teacherId,
+    academicYear: currentAcademicYear._id,
+  }).lean();
+  if (!exam) {
+    responseStatus(res, 404, "failed", "Exam not found, not created by you, or not in the current academic year");
+    return null;
+  }
+
+  // Find all results for the exam
+  const results = await Results.find({ exam: examId })
+    .populate({
+      path: "student",
+      select: "firstName lastName studentId",
+    })
+    .populate({
+      path: "exam",
+      select: "name examType examDate examTime",
+    })
+    .populate({
+      path: "subject",
+      select: "name",
+    })
+    .populate({
+      path: "classLevel",
+      select: "name",
+    })
+    .populate({
+      path: "academicTerm",
+      select: "name",
+    })
+    .populate({
+      path: "academicYear",
+      select: "name fromYear toYear",
+    })
+    .lean()
+    .sort({ score: -1, createdAt: -1 });
+
+  if (!results.length) {
+    responseStatus(res, 404, "failed", "No results found for this exam");
+    return null;
+  }
+
+  return results;
+};
+
+// Admin: Get All Exam Results with Filters and Pagination
+const adminGetAllExamResultsService = async (res, adminId, filters = {}, page = 1, limit = 10) => {
+  // Validate admin
+  const Admin = require("../../models/Staff/admin.model");
+  const admin = await Admin.findById(adminId);
+  if (!admin) {
+    return responseStatus(res, 403, "failed", "Only admins can access exam results");
+  }
+
+  // Build query based on filters
+  const query = {};
+  if (filters.academicYear) query.academicYear = filters.academicYear;
+  if (filters.academicTerm) query.academicTerm = filters.academicTerm;
+  if (filters.classLevel) query.classLevel = filters.classLevel;
+  if (filters.subclass) query.subclass = filters.subclass;
+  if (filters.subject) query.subject = filters.subject;
+
+  // Calculate pagination parameters
+  const skip = (page - 1) * limit;
+
+  // Fetch results with pagination
+  const results = await Results.find(query)
+    .populate("student", "firstName lastName studentId")
+    .populate("exam", "name examType examDate examTime")
+    .populate("subject", "name")
+    .populate("classLevel", "name")
+    .populate("academicTerm", "name")
+    .populate("academicYear", "name")
+    .skip(skip)
+    .limit(limit)
+    .sort({ score: -1, createdAt: -1 }); // Sort by score (desc) and creation date (desc)
+
+  // Get total count for pagination metadata
+  const totalResults = await Results.countDocuments(query);
+  const totalPages = Math.ceil(totalResults / limit);
+
+  if (!results.length) {
+    return responseStatus(res, 404, "failed", "No exam results found for the provided filters");
+  }
+
+  return {
+    results,
+    pagination: {
+      totalResults,
+      totalPages,
+      currentPage: page,
+      limit,
+    },
+  };
+};
+
 // Admin: Publish Exam Results
 const adminPublishResultService = async (examId, res) => {
   // Validate exam
@@ -266,6 +394,8 @@ module.exports = {
   studentCreateExamResultService,
   studentCheckExamResultService,
   getAllExamResultsService,
+  teacherGetSingleExamResultsService,
+  adminGetAllExamResultsService,
   adminPublishResultService,
   adminUnPublishResultService,
 };

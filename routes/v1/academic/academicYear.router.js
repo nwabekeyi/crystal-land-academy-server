@@ -1,11 +1,8 @@
+// routes/academic/academicYear.router.js
 const express = require('express');
 const academicYearRouter = express.Router();
-
-// middleware
 const isAdmin = require('../../../middlewares/isAdmin');
 const isLoggedIn = require('../../../middlewares/isLoggedIn');
-
-// controllers
 const {
   getAcademicYearsController,
   createAcademicYearController,
@@ -14,15 +11,14 @@ const {
   deleteAcademicYearController,
   getCurrentAcademicYearController,
   changeCurrentAcademicYearController,
+  getAcademicYearsMinimalController, // Add new controller
 } = require('../../../controllers/academic/academicYear.controller');
 
+// Get all academic years without students, teachers, and academic terms
+academicYearRouter.route('/academic-years/minimal')
+  .get(isLoggedIn, isAdmin, getAcademicYearsMinimalController);
 
-
-// Get current academic year
-academicYearRouter.route('/academic-years/current')
-  .get(isLoggedIn, getCurrentAcademicYearController);
-
-// Routes
+// Existing routes
 academicYearRouter.route('/academic-years')
   .get(isLoggedIn, isAdmin, getAcademicYearsController)
   .post(isLoggedIn, isAdmin, createAcademicYearController);
@@ -32,8 +28,9 @@ academicYearRouter.route('/academic-years/:id')
   .patch(isLoggedIn, isAdmin, updateAcademicYearController)
   .delete(isLoggedIn, isAdmin, deleteAcademicYearController);
 
+academicYearRouter.route('/academic-years/current')
+  .get(isLoggedIn, getCurrentAcademicYearController);
 
-// Change current academic year
 academicYearRouter.route('/academic-years/change-current/:id')
   .patch(isLoggedIn, isAdmin, changeCurrentAcademicYearController);
 
