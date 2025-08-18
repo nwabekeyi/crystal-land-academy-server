@@ -8,6 +8,7 @@ const {
   deleteAcademicYearService,
   getCurrentAcademicYearService,
   changeCurrentAcademicYearService,
+  getAcademicYearsMinimalService
 } = require("../../services/academic/academicYear.service");
 
 /**
@@ -102,6 +103,20 @@ exports.changeCurrentAcademicYearController = async (req, res) => {
   try {
     await changeCurrentAcademicYearService(res, req.params.id);
     // Response is handled by the service
+  } catch (error) {
+    responseStatus(res, 500, "error", error.message || "Internal server error");
+  }
+};
+
+
+/**
+ * @desc Get all Academic Years without students, teachers, and academic terms
+ * @route GET /api/v1/academic-years/minimal
+ * @access Private
+ */
+exports.getAcademicYearsMinimalController = async (req, res) => {
+  try {
+    await getAcademicYearsMinimalService(res);
   } catch (error) {
     responseStatus(res, 500, "error", error.message || "Internal server error");
   }

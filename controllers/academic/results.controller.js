@@ -3,6 +3,8 @@ const {
   studentCreateExamResultService,
   studentCheckExamResultService,
   getAllExamResultsService,
+  teacherGetSingleExamResultsService,
+  adminGetAllExamResultsService,
   adminPublishResultService,
   adminUnPublishResultService,
 } = require("../../services/academic/results.service");
@@ -14,14 +16,14 @@ const {
  */
 exports.studentCreateExamResultController = async (req, res) => {
   try {
-    const { examId, answeredQuestions } = req.body;
+    const { examId, answeredQuestions, completedTime } = req.body;
     const studentId = req.userAuth.id; // Assuming userAuth is set by auth middleware
 
     if (!examId || !answeredQuestions) {
       return responseStatus(res, 400, "failed", "Exam ID and answered questions are required");
     }
 
-    const result = await studentCreateExamResultService(res, { examId, answeredQuestions }, studentId);
+    const result = await studentCreateExamResultService(res, { examId, answeredQuestions, completedTime }, studentId);
     if (result) {
       responseStatus(res, 201, "success", result);
     }
@@ -61,6 +63,74 @@ exports.getAllExamResultsController = async (req, res) => {
     }
   } catch (error) {
     console.error("Error in getAllExamResultsController:", error.message);
+    responseStatus(res, 400, "failed", error.message);
+  }
+};
+
+/**
+ * @desc Teacher get results for a single exam
+ * @route GET /api/v1/exam-results/exam/:examId
+ * @access Private (teachers only)
+ */
+exports.teacherGetSingleExamResultsController = async (req, res) => {
+  try {
+    const examId = req.params.examId;
+    const teacherId = req.userAuth.id; // Assuming userAuth is set by auth middleware
+
+    if (!examId) {
+      return responseStatus(res, 400, "failed", "Exam ID is required");
+    }
+
+    const results = await teacherGetSingleExamResultsService(examId, teacherId, res);
+    if (results) {
+      responseStatus(res, 200, "success", results);
+    }
+    // No else needed; service handles error responses
+  } catch (error) {
+    console.error("Error in teacherGetSingleExamResultsController:", error.message);
+    responseStatus(res, 500, "failed", "Internal server error");
+  }
+};
+
+/**
+ * @desc Admin get all exam results with filters and pagination
+ * @route GET /api/v1/admin/exam-results
+ * @access Private (admin only)
+ */
+exports.adminGetAllExamResultsController = async (req, res) => {
+  try {
+    const {
+      academicYear,
+      academicTerm,
+      classLevel,
+      subclass,
+      subject,
+      page = 1,
+      limit = 10,
+    } = req.query;
+    const adminId = req.userAuth.id; // Assuming userAuth is set by auth middleware
+
+    // Build filters object, only including defined values
+    const filters = {};
+    if (academicYear) filters.academicYear = academicYear;
+    if (academicTerm) filters.academicTerm = academicTerm;
+    if (classLevel) filters.classLevel = classLevel;
+    if (subclass) filters.subclass = subclass;
+    if (subject) filters.subject = subject;
+
+    // Validate pagination parameters
+    const pageNum = parseInt(page, 10);
+    const limitNum = parseInt(limit, 10);
+    if (isNaN(pageNum) || pageNum < 1 || isNaN(limitNum) || limitNum < 1) {
+      return responseStatus(res, 400, "failed", "Invalid page or limit parameters");
+    }
+
+    const result = await adminGetAllExamResultsService(res, adminId, filters, pageNum, limitNum);
+    if (result) {
+      responseStatus(res, 200, "success", result);
+    }
+  } catch (error) {
+    console.error("Error in adminGetAllExamResultsController:", error.message);
     responseStatus(res, 400, "failed", error.message);
   }
 };
