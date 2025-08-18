@@ -1,1 +1,0 @@
-import{q as r}from"./TextField-IhUWfT1k.js";import{r as t}from"./modal-DfySOKQn.js";import{j as a}from"./index-BGLh42TJ.js";var e={},o=r;Object.defineProperty(e,"__esModule",{value:!0});var u=e.default=void 0,i=o(t()),d=a;u=e.default=(0,i.default)((0,d.jsx)("path",{d:"M5 20h14v-2H5zM19 9h-4V3H9v6H5l7 7z"}),"Download");export{u as d};
