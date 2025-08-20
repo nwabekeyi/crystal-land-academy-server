@@ -304,7 +304,7 @@ exports.getAcademicTermsByYearService = async (academicYearId, res) => {
     return responseStatus(res, 404, "failed", "No academic terms found for this academic year");
   }
 
-  return responseStatus(res, 200, "success", academicTerms);
+  return responseStatus(res, 200, "success", academicTerms[0].terms);
 };
 
 /**
