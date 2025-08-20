@@ -804,7 +804,7 @@ exports.getStudentsBySubjectService = async (classId, subclassLetter) => {
     isGraduated: false,
     isSuspended: false,
     isWithdrawn: false,
-  }).select('firstName lastName studentId email');
+  }).select('firstName lastName studentId email profilePictureUrl boardingStatus religion tribe gender');
 
   // Map subjects to include their enrolled students
   const result = subjects.map((subject) => ({
@@ -815,6 +815,11 @@ exports.getStudentsBySubjectService = async (classId, subclassLetter) => {
       firstName: student.firstName,
       lastName: student.lastName,
       email: student.email,
+      profilePictureUrl: student.profilePictureUrl,
+      boardingStatus: student.boardingStatus,
+      religion: student.religion,
+      tribe: student.tribe,
+      gender: student.gender,
     })),
   }));
 
