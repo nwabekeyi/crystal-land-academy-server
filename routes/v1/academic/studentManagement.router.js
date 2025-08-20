@@ -4,13 +4,14 @@ const {
   getStudentsByTeacherAndClassController,
   postStudentCommentController,
 } = require("../../../controllers/academic/studentManagement.controller");
+const isLoggedIn = require("../../../middlewares/isLoggedIn")
 
 teacherRouter
   .route("/students/:section/:className/:subclass")
-  .get( getStudentsByTeacherAndClassController);
+  .get(isLoggedIn, getStudentsByTeacherAndClassController);
 
 teacherRouter
   .route("/comment")
-  .post( postStudentCommentController);
+  .post(isLoggedIn, postStudentCommentController);
 
 module.exports = teacherRouter;

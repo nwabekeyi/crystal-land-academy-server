@@ -14,6 +14,10 @@ const {
   getAcademicYearsMinimalController, // Add new controller
 } = require('../../../controllers/academic/academicYear.controller');
 
+
+academicYearRouter.route('/academic-years/current')
+  .get(isLoggedIn, getCurrentAcademicYearController);
+
 // Get all academic years without students, teachers, and academic terms
 academicYearRouter.route('/academic-years/minimal')
   .get(isLoggedIn, isAdmin, getAcademicYearsMinimalController);
@@ -27,9 +31,6 @@ academicYearRouter.route('/academic-years/:id')
   .get(isLoggedIn, isAdmin, getAcademicYearController)
   .patch(isLoggedIn, isAdmin, updateAcademicYearController)
   .delete(isLoggedIn, isAdmin, deleteAcademicYearController);
-
-academicYearRouter.route('/academic-years/current')
-  .get(isLoggedIn, getCurrentAcademicYearController);
 
 academicYearRouter.route('/academic-years/change-current/:id')
   .patch(isLoggedIn, isAdmin, changeCurrentAcademicYearController);

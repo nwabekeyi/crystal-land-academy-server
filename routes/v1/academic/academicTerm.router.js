@@ -13,6 +13,10 @@ const {
 } = require("../../../controllers/academic/academicTerm.controller");
 
 academicTermRouter
+  .route("/academic-term/current")
+  .get(isLoggedIn, getCurrentAcademicTermController);
+
+academicTermRouter
   .route("/academic-term")
   .get(isLoggedIn, getAcademicTermsController)
   .post(isLoggedIn, isAdmin, createAcademicTermController);
@@ -20,10 +24,6 @@ academicTermRouter
 academicTermRouter
   .route("/academic-term/year/:academicYearId")
   .get(isLoggedIn, getAcademicTermsByYearController);
-
-academicTermRouter
-  .route("/academic-term/current")
-  .get(isLoggedIn, getCurrentAcademicTermController);
 
 academicTermRouter
   .route("/academic-term/:id")

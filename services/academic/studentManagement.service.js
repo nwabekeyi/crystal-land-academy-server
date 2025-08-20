@@ -11,6 +11,7 @@ exports.getStudentsByTeacherAndClassService = async (teacherId, section, classNa
   }
 
   try {
+
     // Validate query parameters
     if (!academicYearId) {
       return responseStatus(res, 400, "error", "academicYearId is required");
@@ -87,7 +88,7 @@ exports.getStudentsByTeacherAndClassService = async (teacherId, section, classNa
     // Fetch students
     const students = await Student.find({
       _id: { $in: studentIds },
-    }).select("studentId firstName lastName email phoneNumber profilePictureUrl").lean();
+    }).select("studentId firstName lastName email gender tribe religion boardingStatus profilePictureUrl").lean();
 
     // Fetch latest comments for the students in the current class and term
     const comments = await Comment.find({
@@ -119,8 +120,11 @@ exports.getStudentsByTeacherAndClassService = async (teacherId, section, classNa
         id: s._id,
         firstName: s.firstName,
         lastName: s.lastName,
+        tribe:s.tribe,
+        religion:s.religion,
+        boardingStatus:s.boardingStatus,
         email: s.email,
-        phoneNumber: s.phoneNumber,
+        gender: s.gender,
         profilePicture: s.profilePictureUrl,
         classId: classLevel._id,
         comment: commentMap[s._id.toString()] || undefined, // Include latest comment

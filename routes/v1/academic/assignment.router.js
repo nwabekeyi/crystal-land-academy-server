@@ -7,13 +7,16 @@ const {
   getAssignmentsForTeacherController,
   addAssignmentCommentController,
   markSubmissionAsViewedController,
+  getTeacherSubjectsController,
+  getStudentSubjectsController,
 } = require('../../../controllers/academic/assignment.controller');
 const { createMulter } = require('../../../middlewares/fileUpload');
+const isLoggedIn = require('../../../middlewares/isLoggedIn');
 
 const upload = createMulter();
 
-assignmentRouter.post('/assignments', createAssignmentController);
-assignmentRouter.get('/assignments/student', getAssignmentsForStudentController);
+assignmentRouter.post('/assignments',isLoggedIn, createAssignmentController);
+assignmentRouter.get('/assignments/student',isLoggedIn, getAssignmentsForStudentController);
 assignmentRouter.post(
   '/assignments/submit',
   (req, res, next) => {
@@ -27,10 +30,14 @@ assignmentRouter.post(
     console.log('Request file:', req.file);
     next();
   },
+  isLoggedIn,
   submitAssignmentController
 );
-assignmentRouter.get('/assignments/teacher', getAssignmentsForTeacherController);
-assignmentRouter.post('/assignments/comment', addAssignmentCommentController);
-assignmentRouter.post('/assignments/view', markSubmissionAsViewedController);
+assignmentRouter.get('/assignments/teacher',isLoggedIn, getAssignmentsForTeacherController);
+assignmentRouter.post('/assignments/comment',isLoggedIn, addAssignmentCommentController);
+assignmentRouter.post('/assignments/view',isLoggedIn, markSubmissionAsViewedController);
+assignmentRouter.get('/assignments/teacher-subjects',isLoggedIn, getTeacherSubjectsController);
+
+  assignmentRouter.get('/assignments/student-subjects',isLoggedIn, getStudentSubjectsController);
 
 module.exports = assignmentRouter;
