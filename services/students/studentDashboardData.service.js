@@ -6,7 +6,8 @@ const AcademicTerm = require('../../models/Academic/academicTerm.model');
 const ClassLevel = require('../../models/Academic/class.model');
 const StudentPayment = require('../../models/Academic/schoolFees.model');
 const ExamResult = require('../../models/Academic/exams.model');
-const Subject = require('../../models/Academic/subjectName.model');
+const Subject = require('../../models/Academic/subject.model'); // Updated to reference subject.model.js
+const SubjectName = require('../../models/Academic/subjectName.model');
 const Timetable = require('../../models/Academic/timeTable.model');
 
 const getStudentDashboardData = async (studentId) => {
@@ -50,8 +51,9 @@ const getStudentDashboardData = async (studentId) => {
       return { error: 'Class level not found' };
     }
     let studentSubjects = [];
+    let subclassLetter = student.currentClassLevel.subclass;
     if (['SS 1', 'SS 2', 'SS 3'].includes(classLevel.name)) {
-      const subclass = classLevel.subclasses.find((sc) => sc.letter === student.currentClassLevel.subclass);
+      const subclass = classLevel.subclasses.find((sc) => sc.letter === subclassLetter);
       if (subclass) {
         studentSubjects = subclass.subjects.map((s) => s.subject);
       }
@@ -59,12 +61,63 @@ const getStudentDashboardData = async (studentId) => {
       studentSubjects = classLevel.subjects || [];
     }
 
+    // Fetch subject performance from ExamResult
+    const subjectPerformance = await Promise.all(
+      studentSubjects.map(async (subjectId) => {
+        // Fetch exam results for this subject, student, academic year, term, and class level
+        const results = await ExamResult.find({
+          student: studentId,
+          subject: subjectId,
+          academicYear: academicYear._id,
+          academicTerm: academicTerm._id,
+          classLevel: student.classLevelId,
+          ...(subclassLetter && { subclass: subclassLetter }),
+          isPublished: true,
+        })
+          .populate({
+            path: 'subject',
+            select: 'name',
+            populate: {
+              path: 'name',
+              model: 'SubjectName',
+              select: 'name -_id',
+            },
+          })
+          .select('score passMark status remarks position');
+
+        if (!results.length) {
+          const subject = await Subject.findById(subjectId).populate('name');
+          return {
+            subjectId: subjectId.toString(),
+            subjectName: subject?.name?.name || 'Unknown',
+            score: null,
+            passMark: null,
+            status: null,
+            remarks: null,
+            position: null,
+          };
+        }
+
+        // Aggregate results (e.g., average score, latest status/remarks)
+        const latestResult = results[results.length - 1]; // Use the most recent result
+        return {
+          subjectId: subjectId.toString(),
+          subjectName: latestResult.subject?.name?.name || 'Unknown',
+          score: latestResult.score,
+          passMark: latestResult.passMark,
+          status: latestResult.status,
+          remarks: latestResult.remarks,
+          position: latestResult.position,
+        };
+      })
+    );
+
     // Calculate term attendance
     let termAttendance = 0;
     if (studentSubjects.length > 0) {
       const timetableRecords = await Timetable.find({
         classLevel: student.classLevelId,
-        subclassLetter: student.currentClassLevel.subclass,
+        subclassLetter: subclassLetter,
         subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         'periods.date': { $gte: currentTerm.startDate, $lte: currentTerm.endDate },
@@ -104,8 +157,7 @@ const getStudentDashboardData = async (studentId) => {
       };
     }
 
-    // Define subjectPerformance, allResources, assignments to prevent ReferenceError
-    const subjectPerformance = [];
+    // Define allResources, assignments
     const allResources = [];
     const assignments = [];
 
@@ -117,7 +169,7 @@ const getStudentDashboardData = async (studentId) => {
       const currentDayIndex = daysOfWeek.indexOf(now.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' }));
       const timetables = await Timetable.find({
         classLevel: student.classLevelId,
-        subclassLetter: student.currentClassLevel.subclass,
+        subclassLetter: subclassLetter,
         subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         dayOfWeek: { $in: daysOfWeek },
@@ -125,9 +177,9 @@ const getStudentDashboardData = async (studentId) => {
 
       if (timetables.length > 0) {
         const timetable = await Promise.all(timetables.map(async (tt) => {
-          let subjectName = tt.subject?.name || 'Unknown';
+          let subjectName = tt.subject?.name?.name || 'Unknown';
           if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
-            const subjectDoc = await Subject.findById(tt.subject.name);
+            const subjectDoc = await SubjectName.findById(tt.subject.name);
             subjectName = subjectDoc?.name || 'Unknown';
           }
           const nextDate = getNextOccurrence(tt.dayOfWeek, tt.startTime, now);
@@ -162,7 +214,7 @@ const getStudentDashboardData = async (studentId) => {
       const weekStart = new Date('2025-08-04T00:00:00+01:00'); // Monday, August 4, 2025
       const timetables = await Timetable.find({
         classLevel: student.currentClassLevel.classLevelId,
-        subclassLetter: student.currentClassLevel.subclass,
+        subclassLetter: subclassLetter,
         subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         dayOfWeek: { $in: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] },
@@ -170,9 +222,9 @@ const getStudentDashboardData = async (studentId) => {
       for (const tt of timetables) {
         const classDate = getNextOccurrence(tt.dayOfWeek, tt.startTime, weekStart);
         if (classDate < today) {
-          let subjectName = tt.subject?.name || 'Unknown';
+          let subjectName = tt.subject?.name?.name || 'Unknown';
           if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
-            const subjectDoc = await Subject.findById(tt.subject.name);
+            const subjectDoc = await SubjectName.findById(tt.subject.name);
             subjectName = subjectDoc?.name || 'Unknown';
           }
           const classEnd = new Date(classDate);
@@ -204,7 +256,7 @@ const getStudentDashboardData = async (studentId) => {
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
       const timetables = await Timetable.find({
         classLevel: student.currentClassLevel.classLevelId,
-        subclassLetter: student.currentClassLevel.subclass,
+        subclassLetter: subclassLetter,
         subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         dayOfWeek: { $in: daysOfWeek },
@@ -217,9 +269,9 @@ const getStudentDashboardData = async (studentId) => {
         const classEnd = new Date(classDate);
         const [endHours, endMinutes] = tt.endTime.split(':').map(Number);
         classEnd.setHours(endHours, endMinutes, 0, 0);
-        let subjectName = tt.subject?.name || 'Unknown';
+        let subjectName = tt.subject?.name?.name || 'Unknown';
         if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
-          const subjectDoc = await Subject.findById(tt.subject.name);
+          const subjectDoc = await SubjectName.findById(tt.subject.name);
           subjectName = subjectDoc?.name || 'Unknown';
         }
         const attendance = tt.periods

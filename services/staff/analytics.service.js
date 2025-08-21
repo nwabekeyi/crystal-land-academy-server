@@ -1,4 +1,3 @@
-// services/students/analytics.service.js
 const mongoose = require('mongoose');
 const AcademicYear = require('../../models/Academic/academicYear.model');
 const ClassLevel = require('../../models/Academic/class.model');
@@ -37,7 +36,6 @@ exports.getOverviewAnalyticsService = async (academicYearId, academicTermId, res
     const validation = await validateAcademicParams(academicYearId, academicTermId, res);
     if (!validation.academicYear) return;
 
-    // Fetch class populations
     const classPopulations = await ClassLevel.aggregate([
       {
         $match: {
@@ -63,20 +61,17 @@ exports.getOverviewAnalyticsService = async (academicYearId, academicTermId, res
       },
     ]);
 
-    // Add serial number and format for chart
     const classPopulationsWithSN = classPopulations.map((classData, index) => ({
       sn: index + 1,
       className: classData.className,
       studentCount: classData.studentCount,
     }));
 
-    // Calculate student-to-teacher ratio
     const { academicYear } = validation;
     const studentCount = academicYear.students.length;
     const teacherCount = academicYear.teachers.length;
     const studentToTeacherRatio = teacherCount ? `1:${Math.round(studentCount / teacherCount)}` : '1:0';
 
-    // Fetch payment compliance
     const paymentCompliance = await StudentPayment.aggregate([
       {
         $match: {
@@ -249,51 +244,56 @@ exports.getTeacherPerformanceAnalyticsService = async (academicYearId, academicT
                   { $eq: [{ $size: '$$relevantTimetables' }, 0] },
                   0,
                   {
-                    $multiply: [
+                    $round: [
                       {
-                        $divide: [
+                        $multiply: [
                           {
-                            $sum: {
-                              $map: {
-                                input: '$$relevantTimetables',
-                                as: 'timetable',
-                                in: {
-                                  $size: {
-                                    $filter: {
-                                      input: '$$timetable.periods',
-                                      as: 'period',
-                                      cond: {
-                                        $gte: [
-                                          {
-                                            $size: {
-                                              $filter: {
-                                                input: '$$period.attendance',
-                                                as: 'att',
-                                                cond: { $eq: ['$$att.status', 'Present'] },
+                            $divide: [
+                              {
+                                $sum: {
+                                  $map: {
+                                    input: '$$relevantTimetables',
+                                    as: 'timetable',
+                                    in: {
+                                      $size: {
+                                        $filter: {
+                                          input: '$$timetable.periods',
+                                          as: 'period',
+                                          cond: {
+                                            $gte: [
+                                              {
+                                                $size: {
+                                                  $filter: {
+                                                    input: '$$period.attendance',
+                                                    as: 'att',
+                                                    cond: { $eq: ['$$att.status', 'Present'] },
+                                                  },
+                                                },
                                               },
-                                            },
+                                              1,
+                                            ],
                                           },
-                                          1,
-                                        ],
+                                        },
                                       },
                                     },
                                   },
                                 },
                               },
-                            },
-                          },
-                          {
-                            $sum: {
-                              $map: {
-                                input: '$$relevantTimetables',
-                                as: 'timetable',
-                                in: { $size: '$$timetable.periods' },
+                              {
+                                $sum: {
+                                  $map: {
+                                    input: '$$relevantTimetables',
+                                    as: 'timetable',
+                                    in: { $size: '$$timetable.periods' },
+                                  },
+                                },
                               },
-                            },
+                            ],
                           },
+                          100,
                         ],
                       },
-                      100,
+                      2, // Round to 2 decimal places
                     ],
                   },
                 ],
@@ -329,7 +329,6 @@ exports.getAttendanceAnalyticsService = async (academicYearId, academicTermId, r
     const validation = await validateAcademicParams(academicYearId, academicTermId, res);
     if (!validation.academicYear) return;
 
-    // Monthly Attendance Trends
     const monthlyTrends = await Timetable.aggregate([
       {
         $match: {
@@ -413,7 +412,6 @@ exports.getAttendanceAnalyticsService = async (academicYearId, academicTermId, r
       { $sort: { month: 1 } },
     ]);
 
-    // Class Participation Rate
     const classParticipation = await Timetable.aggregate([
       {
         $match: {
