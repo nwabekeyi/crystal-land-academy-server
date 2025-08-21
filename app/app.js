@@ -40,13 +40,6 @@ routeSync(app, "Event");
 routeSync(app, "Review");
 routeSync(app, "financials");
 
-// Serve static files from the frontend build
-app.use(express.static(path.join(__dirname, "../public/dist")));
-
-// Serve the index.html file on root or any unmatched route (for SPA support)
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/dist/index.html"));
-});
 
 // Optional catch-all for truly invalid requests (if needed after above)
 app.all("*", (req, res) => {
