@@ -14,7 +14,7 @@ function createMulter() {
         folder: 'crystal-land-academy',
         public_id: uniquePublicId,
         format,
-        resource_type: 'auto',
+        resource_type: 'auto', // Valid for uploads
       };
     },
   });
@@ -54,11 +54,23 @@ async function deleteFromCloudinary(imageUrls) {
     }
   };
 
+  const getResourceType = (url) => {
+    const ext = path.extname(url).toLowerCase();
+    if (['.pdf', '.txt', '.doc', '.docx', '.xls', '.xlsx', '.zip'].includes(ext)) {
+      return 'raw';
+    } else if (['.mp4', '.mov', '.avi'].includes(ext)) {
+      return 'video';
+    }
+    return 'image'; // Default for jpg, png, webp
+  };
+
   const deletions = urls.map(async (url) => {
     const publicId = extractPublicId(url);
+    const resource_type = getResourceType(url);
+    console.log(`Deleting from Cloudinary: publicId=${publicId}, resource_type=${resource_type}`);
     const result = await cloudinary.uploader.destroy(publicId, {
       invalidate: true,
-      resource_type: 'auto', // Support PDFs and other types
+      resource_type, // Use dynamic resource_type
     });
     return { url, result };
   });

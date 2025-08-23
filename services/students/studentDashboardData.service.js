@@ -6,7 +6,7 @@ const AcademicTerm = require('../../models/Academic/academicTerm.model');
 const ClassLevel = require('../../models/Academic/class.model');
 const StudentPayment = require('../../models/Academic/schoolFees.model');
 const ExamResult = require('../../models/Academic/exams.model');
-const Subject = require('../../models/Academic/subject.model'); // Updated to reference subject.model.js
+const Subject = require('../../models/Academic/subject.model');
 const SubjectName = require('../../models/Academic/subjectName.model');
 const Timetable = require('../../models/Academic/timeTable.model');
 
@@ -38,7 +38,7 @@ const getStudentDashboardData = async (studentId) => {
     }
 
     // Calculate session progress
-    const today = new Date('2025-08-09T19:18:00+01:00'); // Current date: Saturday, August 9, 2025, 7:18 PM WAT
+    const today = new Date(); // Use current date and time
     const yearStart = new Date(academicYear.fromYear);
     const yearEnd = new Date(academicYear.toYear);
     const totalDays = (yearEnd - yearStart) / (1000 * 60 * 60 * 24);
@@ -61,7 +61,7 @@ const getStudentDashboardData = async (studentId) => {
       studentSubjects = classLevel.subjects || [];
     }
 
-    // Fetch subject performance from ExamResult
+    // Fetch subject performance from ExamResult, only for subjects with results
     const subjectPerformance = await Promise.all(
       studentSubjects.map(async (subjectId) => {
         // Fetch exam results for this subject, student, academic year, term, and class level
@@ -83,34 +83,44 @@ const getStudentDashboardData = async (studentId) => {
               select: 'name -_id',
             },
           })
+          .populate({
+            path: 'exam',
+            select: 'totalMark',
+          })
           .select('score passMark status remarks position');
 
+        // Skip subjects with no results
         if (!results.length) {
-          const subject = await Subject.findById(subjectId).populate('name');
-          return {
-            subjectId: subjectId.toString(),
-            subjectName: subject?.name?.name || 'Unknown',
-            score: null,
-            passMark: null,
-            status: null,
-            remarks: null,
-            position: null,
-          };
+          return null; // Return null to filter out later
         }
 
-        // Aggregate results (e.g., average score, latest status/remarks)
-        const latestResult = results[results.length - 1]; // Use the most recent result
+        // Aggregate results (use the most recent result)
+        const latestResult = results[results.length - 1];
+        const totalMark = latestResult.exam?.totalMark || 100; // Fallback to 100 if totalMark is not available
+        const percentage = latestResult.score != null && totalMark > 0 
+          ? Math.round((latestResult.score / totalMark) * 100) 
+          : null;
+
+        // Only include if percentage is not null
+        if (percentage === null) {
+          return null; // Skip subjects with no valid percentage
+        }
+
         return {
           subjectId: subjectId.toString(),
           subjectName: latestResult.subject?.name?.name || 'Unknown',
           score: latestResult.score,
           passMark: latestResult.passMark,
+          percentage, // Calculated percentage
           status: latestResult.status,
           remarks: latestResult.remarks,
           position: latestResult.position,
         };
       })
     );
+
+    // Filter out null entries to include only subjects with valid results
+    const filteredSubjectPerformance = subjectPerformance.filter((item) => item !== null);
 
     // Calculate term attendance
     let termAttendance = 0;
@@ -164,7 +174,7 @@ const getStudentDashboardData = async (studentId) => {
     // Fetch next class
     let nextClass = null;
     if (classLevel) {
-      const now = new Date('2025-08-09T19:18:00+01:00'); // 7:18 PM WAT, August 9, 2025
+      const now = new Date(); // Use current date and time
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
       const currentDayIndex = daysOfWeek.indexOf(now.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' }));
       const timetables = await Timetable.find({
@@ -211,7 +221,7 @@ const getStudentDashboardData = async (studentId) => {
     // Fetch missed classes
     const missedClasses = [];
     if (classLevel) {
-      const weekStart = new Date('2025-08-04T00:00:00+01:00'); // Monday, August 4, 2025
+      const weekStart = new Date('2025-08-18T00:00:00+01:00'); // Monday, August 18, 2025
       const timetables = await Timetable.find({
         classLevel: student.currentClassLevel.classLevelId,
         subclassLetter: subclassLetter,
@@ -252,7 +262,7 @@ const getStudentDashboardData = async (studentId) => {
     // Fetch timetable with attendance
     const timetable = [];
     if (classLevel) {
-      const weekStart = new Date('2025-08-04T00:00:00+01:00'); // Monday, August 4, 2025
+      const weekStart = new Date('2025-08-18T00:00:00+01:00'); // Monday, August 18, 2025
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
       const timetables = await Timetable.find({
         classLevel: student.currentClassLevel.classLevelId,
@@ -302,7 +312,7 @@ const getStudentDashboardData = async (studentId) => {
       feeStatus,
       nextClass,
       missedClasses,
-      subjectPerformance,
+      subjectPerformance: filteredSubjectPerformance, // Return only subjects with results
       allResources,
       assignments,
       timetable,

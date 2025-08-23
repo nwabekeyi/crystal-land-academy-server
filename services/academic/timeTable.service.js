@@ -71,7 +71,7 @@ const isTimeOverlap = (startTime1, numberOfPeriods1, startTime2, numberOfPeriods
  * Find Subject by name alone
  */
 const findSubjectByName = async (subjectName) => {
-  return await Subject.findOne({ name: subjectName });
+  return await Subject.findById(subjectName);
 };
 
 /**

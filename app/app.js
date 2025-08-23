@@ -1,10 +1,14 @@
 const express = require("express");
 const morgan = require("morgan");
-const path = require("path");
 const cors = require("cors");
 const routeSync = require("../handlers/routeSync.handler");
 const { verifyEnv } = require("../config/env.Config");
 require("../config/dbConnect");
+const cronJobs = require('../cronJobs/index');
+
+
+//start cronjobs
+cronJobs();
 
 // Import the cron job
 const deleteOldCloudinaryFiles = require("../utils/deleteOldCloudinaruFiles");
@@ -40,6 +44,10 @@ routeSync(app, "Event");
 routeSync(app, "Review");
 routeSync(app, "financials");
 
+//chck health
+app.get("/healthcheck", (req, res) => {
+  res.status(200).send("Health Check");
+});
 
 // Optional catch-all for truly invalid requests (if needed after above)
 app.all("*", (req, res) => {
