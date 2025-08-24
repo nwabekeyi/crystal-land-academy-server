@@ -5,12 +5,15 @@ const {
 const Teacher = require("../../models/Staff/teachers.model");
 const Admin = require("../../models/Staff/admin.model");
 const Subject = require("../../models/Academic/subject.model");
+const SubjectName = require("../../models/Academic/subjectName.model");
 const AcademicYear = require("../../models/Academic/academicYear.model");
 const ClassLevel = require("../../models/Academic/class.model");
 const generateToken = require("../../utils/tokenGenerator");
 const { deleteFromCloudinary } = require("../../middlewares/fileUpload");
 const responseStatus = require("../../handlers/responseStatus.handler");
 const Results = require('../../models/Academic/results.model');
+const mongoose = require("mongoose");
+
 
 /**
  * Service to create a new teacher
@@ -35,70 +38,124 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
     tribe,
     religion,
     bankAccountDetails,
-    subject,
+    subject, // Expected to be ObjectId of a Subject document
     classLevel,
     subclassLetter,
     linkedInProfile,
   } = data;
 
+  let originalAcademicYear = null;
+  let originalClassLevel = null;
+  let originalSubject = null;
+
   try {
     // Check if teacher email exists
+    console.log('Checking if teacher exists with email:', email);
     const teacherExists = await Teacher.findOne({ email });
     if (teacherExists) {
+      console.log('Teacher already registered:', email);
       return responseStatus(res, 409, "failed", "Teacher already registered");
     }
 
     // Validate subject if provided
-    let subjectDoc;
+    let subjectId;
     if (subject) {
-      subjectDoc = await Subject.findById(subject);
-      if (!subjectDoc) {
-        return responseStatus(res, 404, "failed", "Subject not found");
+      console.log('Validating subject:', JSON.stringify(subject, null, 2));
+      if (mongoose.isValidObjectId(subject)) {
+        console.log('Subject is a valid ObjectId, querying Subject:', subject);
+        const subjectDoc = await Subject.findById(subject).populate('name');
+        if (!subjectDoc) {
+          console.log('Subject not found:', subject);
+          return responseStatus(res, 404, "failed", "Subject not found");
+        }
+        console.log('Subject found:', JSON.stringify(subjectDoc, null, 2));
+        subjectId = subjectDoc._id;
+      } else {
+        console.log('Invalid Subject ID format:', JSON.stringify(subject, null, 2));
+        return responseStatus(res, 400, "failed", "Subject must be a valid ObjectId");
       }
+    } else {
+      console.log('No subject provided');
     }
 
     // Validate classLevel and subclassLetter if provided
     if (classLevel || subclassLetter) {
+      console.log('Validating classLevel and subclassLetter:', { classLevel, subclassLetter });
       if (!classLevel || !subclassLetter || !subject) {
+        console.log('Missing required fields for class assignment');
         return responseStatus(res, 400, "failed", "Subject, classLevel, and subclassLetter are required if one is provided");
       }
+      console.log('Querying ClassLevel:', classLevel);
       const classLevelDoc = await ClassLevel.findById(classLevel);
       if (!classLevelDoc) {
+        console.log('ClassLevel not found:', classLevel);
         return responseStatus(res, 404, "failed", "ClassLevel not found");
       }
+      console.log('ClassLevel found:', JSON.stringify(classLevelDoc, null, 2));
       if (!classLevelDoc.subclasses.some((sub) => sub.letter === subclassLetter)) {
+        console.log('Subclass not found:', subclassLetter);
         return responseStatus(res, 400, "failed", `Subclass ${subclassLetter} not found in ClassLevel`);
       }
     }
 
     // Find current academic year
+    console.log('Querying current AcademicYear');
     const currentAcademicYear = await AcademicYear.findOne({ isCurrent: true });
     if (!currentAcademicYear) {
+      console.log('No current academic year found');
       return responseStatus(res, 400, "failed", "No current academic year set");
     }
+    console.log('Current AcademicYear:', JSON.stringify(currentAcademicYear, null, 2));
+    // Backup AcademicYear state
+    originalAcademicYear = {
+      _id: currentAcademicYear._id,
+      teachers: [...currentAcademicYear.teachers],
+    };
 
     // Validate bankAccountDetails
+    console.log('Validating bankAccountDetails:', JSON.stringify(bankAccountDetails, null, 2));
     if (
       !bankAccountDetails ||
       !bankAccountDetails.accountName ||
       !bankAccountDetails.accountNumber ||
       !bankAccountDetails.bank
     ) {
+      console.log('Incomplete bank account details');
       return responseStatus(res, 400, "failed", "Complete bank account details are required");
     }
 
     // Hash password
+    console.log('Hashing password');
     const hashedPassword = await hashPassword(password);
 
     // Handle profile picture upload
     let profilePictureUrl = "";
     if (file) {
+      console.log('Profile picture provided:', file.path);
       profilePictureUrl = file.path;
     } else {
+      console.log('No profile picture provided');
       return responseStatus(res, 400, "failed", "Profile picture is required");
     }
 
     // Create new teacher
+    console.log('Creating new teacher with data:', {
+      firstName,
+      lastName,
+      middleName,
+      email,
+      gender,
+      NIN,
+      address,
+      qualification,
+      phoneNumber,
+      tribe,
+      religion,
+      bankAccountDetails,
+      subject: subjectId,
+      profilePictureUrl,
+      linkedInProfile,
+    });
     const newTeacher = await Teacher.create({
       firstName,
       lastName,
@@ -113,7 +170,7 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
       tribe,
       religion,
       bankAccountDetails,
-      subject,
+      subject: subjectId, // Use resolved subjectId
       profilePictureUrl,
       linkedInProfile,
       teachingAssignments: classLevel && subclassLetter ? [{
@@ -122,15 +179,33 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
         subclasses: [subclassLetter],
       }] : [],
     });
+    console.log('Teacher created:', JSON.stringify(newTeacher, null, 2));
 
     // Add teacher to current academic year's teachers array
+    console.log('Adding teacher to AcademicYear:', newTeacher._id);
     currentAcademicYear.teachers.push(newTeacher._id);
     await currentAcademicYear.save();
+    console.log('AcademicYear updated');
 
     // Add teacher to ClassLevel.teachers and ClassLevel.subclasses.subjects.teachers
-    if (classLevel && subclassLetter && subject) {
+    if (classLevel && subclassLetter && subjectId) {
+      console.log('Updating ClassLevel:', classLevel);
       const classLevelDoc = await ClassLevel.findById(classLevel);
       if (classLevelDoc) {
+        // Backup ClassLevel state
+        originalClassLevel = {
+          _id: classLevelDoc._id,
+          teachers: [...classLevelDoc.teachers],
+          subclasses: classLevelDoc.subclasses.map((sub) => ({
+            letter: sub.letter,
+            subjects: sub.subjects.map((s) => ({
+              subject: s.subject,
+              teachers: [...s.teachers],
+            })),
+          })),
+        };
+        console.log('ClassLevel backup created:', JSON.stringify(originalClassLevel, null, 2));
+
         // Add to ClassLevel.teachers
         const teacherEntry = {
           teacherId: newTeacher._id,
@@ -138,56 +213,130 @@ exports.adminRegisterTeacherService = async (data, file, adminId, res) => {
           lastName: newTeacher.lastName,
         };
         if (!classLevelDoc.teachers.some((t) => t.teacherId.toString() === newTeacher._id.toString())) {
+          console.log('Adding teacher to ClassLevel.teachers:', teacherEntry);
           classLevelDoc.teachers.push(teacherEntry);
         }
 
         // Add to ClassLevel.subclasses.subjects.teachers
         const subclass = classLevelDoc.subclasses.find((sub) => sub.letter === subclassLetter);
         if (subclass) {
-          let subjectEntry = subclass.subjects.find((s) => s.subject.toString() === subject);
+          let subjectEntry = subclass.subjects.find((s) => s.subject.toString() === subjectId);
           if (!subjectEntry) {
-            subjectEntry = { subject, teachers: [] };
+            subjectEntry = { subject: subjectId, teachers: [] };
+            console.log('Creating new subject entry in subclass:', subjectEntry);
             subclass.subjects.push(subjectEntry);
           }
           if (!subjectEntry.teachers.includes(newTeacher._id)) {
+            console.log('Adding teacher to subclass.subjects.teachers:', newTeacher._id);
             subjectEntry.teachers.push(newTeacher._id);
           }
           await classLevelDoc.save();
+          console.log('ClassLevel updated');
         } else {
-          return responseStatus(res, 400, "failed", `Subclass ${subclassLetter} not found in ClassLevel during teacher assignment`);
+          console.log('Subclass not found, throwing error:', subclassLetter);
+          throw new Error(`Subclass ${subclassLetter} not found in ClassLevel during teacher assignment`);
         }
 
         // Add teacher to Subject.classLevelSubclasses.teachers
+        console.log('Updating Subject:', subjectId);
+        const subjectDoc = await Subject.findById(subjectId);
         if (subjectDoc) {
+          // Backup Subject state
+          originalSubject = {
+            _id: subjectDoc._id,
+            classLevelSubclasses: subjectDoc.classLevelSubclasses.map((cls) => ({
+              classLevel: cls.classLevel,
+              subclassLetter: cls.subclassLetter,
+              teachers: [...cls.teachers],
+            })),
+          };
+          console.log('Subject backup created:', JSON.stringify(originalSubject, null, 2));
+
           let classLevelSubclass = subjectDoc.classLevelSubclasses.find(
             (cls) => cls.classLevel.toString() === classLevel && cls.subclassLetter === subclassLetter
           );
           if (!classLevelSubclass) {
             classLevelSubclass = { classLevel, subclassLetter, teachers: [] };
+            console.log('Creating new classLevelSubclass:', classLevelSubclass);
             subjectDoc.classLevelSubclasses.push(classLevelSubclass);
           }
           if (!classLevelSubclass.teachers.includes(newTeacher._id)) {
+            console.log('Adding teacher to Subject.classLevelSubclasses.teachers:', newTeacher._id);
             classLevelSubclass.teachers.push(newTeacher._id);
           }
           await subjectDoc.save();
+          console.log('Subject updated');
         }
       }
     }
 
     // Populate relevant fields
+    console.log('Populating teacher data:', newTeacher._id);
     const populatedTeacher = await Teacher.findById(newTeacher._id)
       .select("-password")
-      .populate("subject");
+      .populate({
+        path: "subject",
+        populate: { path: "name", select: "name -_id" }
+      });
+    console.log('Populated teacher:', JSON.stringify(populatedTeacher, null, 2));
 
+    console.log('Sending success response');
     return responseStatus(res, 201, "success", populatedTeacher);
   } catch (error) {
-    if (file) {
-      try {
-        await deleteFromCloudinary(file.path);
-      } catch (err) {
-        console.error("Failed to delete uploaded file:", err.message);
+    // Rollback changes
+    console.error('Error in adminRegisterTeacherService:', error);
+    try {
+      console.log('Starting rollback');
+      // Rollback AcademicYear.teachers
+      if (originalAcademicYear) {
+        console.log('Rolling back AcademicYear:', originalAcademicYear._id);
+        await AcademicYear.findByIdAndUpdate(originalAcademicYear._id, {
+          $set: { teachers: originalAcademicYear.teachers },
+        });
+        console.log('AcademicYear rolled back');
       }
+
+      // Rollback ClassLevel.teachers and ClassLevel.subclasses.subjects.teachers
+      if (originalClassLevel) {
+        console.log('Rolling back ClassLevel:', originalClassLevel._id);
+        await ClassLevel.findByIdAndUpdate(originalClassLevel._id, {
+          $set: {
+            teachers: originalClassLevel.teachers,
+            subclasses: originalClassLevel.subclasses,
+          },
+        });
+        console.log('ClassLevel rolled back');
+      }
+
+      // Rollback Subject.classLevelSubclasses.teachers
+      if (originalSubject) {
+        console.log('Rolling back Subject:', originalSubject._id);
+        await Subject.findByIdAndUpdate(originalSubject._id, {
+          $set: { classLevelSubclasses: originalSubject.classLevelSubclasses },
+        });
+        console.log('Subject rolled back');
+      }
+
+      // Delete teacher if created
+      console.log('Checking for teacher to delete:', email);
+      const teacher = await Teacher.findOne({ email });
+      if (teacher) {
+        console.log('Deleting teacher:', teacher._id);
+        await Teacher.findByIdAndDelete(teacher._id);
+        console.log('Teacher deleted');
+      }
+
+      // Delete uploaded file
+      if (file) {
+        console.log('Deleting uploaded file:', file.path);
+        await deleteFromCloudinary(file.path);
+        console.log('File deleted');
+      }
+    } catch (rollbackError) {
+      console.error('Rollback failed:', rollbackError.message);
     }
+
+    console.error('Sending error response:', error.message);
     return responseStatus(res, 500, "failed", "Error creating teacher: " + error.message);
   }
 };
@@ -639,6 +788,7 @@ exports.adminUpdateTeacherProfileService = async (data, file, teacherId, res) =>
     applicationStatus,
     linkedInProfile,
   } = data;
+
 
   try {
     const teacherExist = await Teacher.findById(teacherId);

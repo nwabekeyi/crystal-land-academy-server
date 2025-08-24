@@ -42,14 +42,14 @@ const subjectSchema = new mongoose.Schema(
 );
 
 // Automatically populate 'name' on all finds
-subjectSchema.pre(/^find/, function (next) {
-  this.populate({
-    path: "name",
-    model: "SubjectName",
-    select: "name -_id", // only the actual subject name
-  });
-  next();
-});
+// subjectSchema.pre(/^find/, function (next) {
+//   this.populate({
+//     path: "name",
+//     model: "SubjectName",
+//     select: "name -_id", // only the actual subject name
+//   });
+//   next();
+// });
 
 // Pre-save validation
 subjectSchema.pre("save", async function (next) {

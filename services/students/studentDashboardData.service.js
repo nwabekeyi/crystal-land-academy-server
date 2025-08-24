@@ -6,7 +6,8 @@ const AcademicTerm = require('../../models/Academic/academicTerm.model');
 const ClassLevel = require('../../models/Academic/class.model');
 const StudentPayment = require('../../models/Academic/schoolFees.model');
 const ExamResult = require('../../models/Academic/exams.model');
-const Subject = require('../../models/Academic/subjectName.model');
+const Subject = require('../../models/Academic/subject.model');
+const SubjectName = require('../../models/Academic/subjectName.model');
 const Timetable = require('../../models/Academic/timeTable.model');
 
 const getStudentDashboardData = async (studentId) => {
@@ -37,7 +38,7 @@ const getStudentDashboardData = async (studentId) => {
     }
 
     // Calculate session progress
-    const today = new Date('2025-08-09T19:18:00+01:00'); // Current date: Saturday, August 9, 2025, 7:18 PM WAT
+    const today = new Date(); // Use current date and time
     const yearStart = new Date(academicYear.fromYear);
     const yearEnd = new Date(academicYear.toYear);
     const totalDays = (yearEnd - yearStart) / (1000 * 60 * 60 * 24);
@@ -50,8 +51,9 @@ const getStudentDashboardData = async (studentId) => {
       return { error: 'Class level not found' };
     }
     let studentSubjects = [];
+    let subclassLetter = student.currentClassLevel.subclass;
     if (['SS 1', 'SS 2', 'SS 3'].includes(classLevel.name)) {
-      const subclass = classLevel.subclasses.find((sc) => sc.letter === student.currentClassLevel.subclass);
+      const subclass = classLevel.subclasses.find((sc) => sc.letter === subclassLetter);
       if (subclass) {
         studentSubjects = subclass.subjects.map((s) => s.subject);
       }
@@ -59,12 +61,73 @@ const getStudentDashboardData = async (studentId) => {
       studentSubjects = classLevel.subjects || [];
     }
 
+    // Fetch subject performance from ExamResult, only for subjects with results
+    const subjectPerformance = await Promise.all(
+      studentSubjects.map(async (subjectId) => {
+        // Fetch exam results for this subject, student, academic year, term, and class level
+        const results = await ExamResult.find({
+          student: studentId,
+          subject: subjectId,
+          academicYear: academicYear._id,
+          academicTerm: academicTerm._id,
+          classLevel: student.classLevelId,
+          ...(subclassLetter && { subclass: subclassLetter }),
+          isPublished: true,
+        })
+          .populate({
+            path: 'subject',
+            select: 'name',
+            populate: {
+              path: 'name',
+              model: 'SubjectName',
+              select: 'name -_id',
+            },
+          })
+          .populate({
+            path: 'exam',
+            select: 'totalMark',
+          })
+          .select('score passMark status remarks position');
+
+        // Skip subjects with no results
+        if (!results.length) {
+          return null; // Return null to filter out later
+        }
+
+        // Aggregate results (use the most recent result)
+        const latestResult = results[results.length - 1];
+        const totalMark = latestResult.exam?.totalMark || 100; // Fallback to 100 if totalMark is not available
+        const percentage = latestResult.score != null && totalMark > 0 
+          ? Math.round((latestResult.score / totalMark) * 100) 
+          : null;
+
+        // Only include if percentage is not null
+        if (percentage === null) {
+          return null; // Skip subjects with no valid percentage
+        }
+
+        return {
+          subjectId: subjectId.toString(),
+          subjectName: latestResult.subject?.name?.name || 'Unknown',
+          score: latestResult.score,
+          passMark: latestResult.passMark,
+          percentage, // Calculated percentage
+          status: latestResult.status,
+          remarks: latestResult.remarks,
+          position: latestResult.position,
+        };
+      })
+    );
+
+    // Filter out null entries to include only subjects with valid results
+    const filteredSubjectPerformance = subjectPerformance.filter((item) => item !== null);
+
     // Calculate term attendance
     let termAttendance = 0;
     if (studentSubjects.length > 0) {
       const timetableRecords = await Timetable.find({
         classLevel: student.classLevelId,
-        subclassLetter: student.currentClassLevel.subclass,
+        subclassLetter: subclassLetter,
         subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         'periods.date': { $gte: currentTerm.startDate, $lte: currentTerm.endDate },
@@ -104,20 +167,19 @@ const getStudentDashboardData = async (studentId) => {
       };
     }
 
-    // Define subjectPerformance, allResources, assignments to prevent ReferenceError
-    const subjectPerformance = [];
+    // Define allResources, assignments
     const allResources = [];
     const assignments = [];
 
     // Fetch next class
     let nextClass = null;
     if (classLevel) {
-      const now = new Date('2025-08-09T19:18:00+01:00'); // 7:18 PM WAT, August 9, 2025
+      const now = new Date(); // Use current date and time
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
       const currentDayIndex = daysOfWeek.indexOf(now.toLocaleString('en-US', { weekday: 'long', timeZone: 'Africa/Lagos' }));
       const timetables = await Timetable.find({
         classLevel: student.classLevelId,
-        subclassLetter: student.currentClassLevel.subclass,
+        subclassLetter: subclassLetter,
         subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         dayOfWeek: { $in: daysOfWeek },
@@ -125,9 +187,9 @@ const getStudentDashboardData = async (studentId) => {
 
       if (timetables.length > 0) {
         const timetable = await Promise.all(timetables.map(async (tt) => {
-          let subjectName = tt.subject?.name || 'Unknown';
+          let subjectName = tt.subject?.name?.name || 'Unknown';
           if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
-            const subjectDoc = await Subject.findById(tt.subject.name);
+            const subjectDoc = await SubjectName.findById(tt.subject.name);
             subjectName = subjectDoc?.name || 'Unknown';
           }
           const nextDate = getNextOccurrence(tt.dayOfWeek, tt.startTime, now);
@@ -159,10 +221,10 @@ const getStudentDashboardData = async (studentId) => {
     // Fetch missed classes
     const missedClasses = [];
     if (classLevel) {
-      const weekStart = new Date('2025-08-04T00:00:00+01:00'); // Monday, August 4, 2025
+      const weekStart = new Date('2025-08-18T00:00:00+01:00'); // Monday, August 18, 2025
       const timetables = await Timetable.find({
         classLevel: student.currentClassLevel.classLevelId,
-        subclassLetter: student.currentClassLevel.subclass,
+        subclassLetter: subclassLetter,
         subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         dayOfWeek: { $in: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'] },
@@ -170,9 +232,9 @@ const getStudentDashboardData = async (studentId) => {
       for (const tt of timetables) {
         const classDate = getNextOccurrence(tt.dayOfWeek, tt.startTime, weekStart);
         if (classDate < today) {
-          let subjectName = tt.subject?.name || 'Unknown';
+          let subjectName = tt.subject?.name?.name || 'Unknown';
           if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
-            const subjectDoc = await Subject.findById(tt.subject.name);
+            const subjectDoc = await SubjectName.findById(tt.subject.name);
             subjectName = subjectDoc?.name || 'Unknown';
           }
           const classEnd = new Date(classDate);
@@ -200,11 +262,11 @@ const getStudentDashboardData = async (studentId) => {
     // Fetch timetable with attendance
     const timetable = [];
     if (classLevel) {
-      const weekStart = new Date('2025-08-04T00:00:00+01:00'); // Monday, August 4, 2025
+      const weekStart = new Date('2025-08-18T00:00:00+01:00'); // Monday, August 18, 2025
       const daysOfWeek = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
       const timetables = await Timetable.find({
         classLevel: student.currentClassLevel.classLevelId,
-        subclassLetter: student.currentClassLevel.subclass,
+        subclassLetter: subclassLetter,
         subject: { $in: studentSubjects },
         academicYear: academicYear._id,
         dayOfWeek: { $in: daysOfWeek },
@@ -217,9 +279,9 @@ const getStudentDashboardData = async (studentId) => {
         const classEnd = new Date(classDate);
         const [endHours, endMinutes] = tt.endTime.split(':').map(Number);
         classEnd.setHours(endHours, endMinutes, 0, 0);
-        let subjectName = tt.subject?.name || 'Unknown';
+        let subjectName = tt.subject?.name?.name || 'Unknown';
         if (tt.subject?.name && mongoose.isValidObjectId(tt.subject.name)) {
-          const subjectDoc = await Subject.findById(tt.subject.name);
+          const subjectDoc = await SubjectName.findById(tt.subject.name);
           subjectName = subjectDoc?.name || 'Unknown';
         }
         const attendance = tt.periods
@@ -250,7 +312,7 @@ const getStudentDashboardData = async (studentId) => {
       feeStatus,
       nextClass,
       missedClasses,
-      subjectPerformance,
+      subjectPerformance: filteredSubjectPerformance, // Return only subjects with results
       allResources,
       assignments,
       timetable,

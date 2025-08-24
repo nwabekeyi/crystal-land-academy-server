@@ -279,15 +279,15 @@ ClassLevelSchema.pre("validate", async function (next) {
     }
 
     // Validate students aggregation
-    if (this.students && this.students.length > 0) {
-      const allSubclassStudents = this.subclasses
-        .flatMap((sub) => sub.students || [])
-        .map((s) => s.id.toString());
-      const classLevelStudents = this.students.map(String);
-      if (!classLevelStudents.every((id) => allSubclassStudents.includes(id))) {
-        return next(new Error("ClassLevel.students contains students not in any subclass"));
-      }
-    }
+    // if (this.students && this.students.length > 0) {
+    //   const allSubclassStudents = this.subclasses
+    //     .flatMap((sub) => sub.students || [])
+    //     .map((s) => s.id.toString());
+    //   const classLevelStudents = this.students.map(String);
+    //   if (!classLevelStudents.every((id) => allSubclassStudents.includes(id))) {
+    //     return next(new Error("ClassLevel.students contains students not in any subclass"));
+    //   }
+    // }
 
     next();
   } catch (error) {

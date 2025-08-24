@@ -1,10 +1,14 @@
 const express = require("express");
 const morgan = require("morgan");
-const path = require("path");
 const cors = require("cors");
 const routeSync = require("../handlers/routeSync.handler");
 const { verifyEnv } = require("../config/env.Config");
 require("../config/dbConnect");
+const cronJobs = require('../cronJobs/index');
+
+
+//start cronjobs
+cronJobs();
 
 // Import the cron job
 const deleteOldCloudinaryFiles = require("../utils/deleteOldCloudinaruFiles");
@@ -40,12 +44,9 @@ routeSync(app, "Event");
 routeSync(app, "Review");
 routeSync(app, "financials");
 
-// Serve static files from the frontend build
-app.use(express.static(path.join(__dirname, "../public/dist")));
-
-// Serve the index.html file on root or any unmatched route (for SPA support)
-app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "../public/dist/index.html"));
+//chck health
+app.get("/healthcheck", (req, res) => {
+  res.status(200).send("Health Check");
 });
 
 // Optional catch-all for truly invalid requests (if needed after above)

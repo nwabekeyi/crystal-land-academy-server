@@ -18,7 +18,7 @@ const generateToken = require("../../utils/tokenGenerator");
  * @returns {void} - The created admin object or an error message.
  */
 exports.registerAdminService = async (data, res) => {
-  const { firstName, lastName, middleName, email, password } = data;
+  const { firstName, lastName, email, password = '123456789' } = data;
 
   // Check if admin with the same email already exists
   const isAdminExist = await Admin.findOne({ email });
@@ -30,7 +30,6 @@ exports.registerAdminService = async (data, res) => {
     await Admin.create({
       firstName,
       lastName,
-      middleName,
       email,
       password: await hashPassword(password),
     });
