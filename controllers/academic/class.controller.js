@@ -21,7 +21,7 @@ exports.getClassLevelsController = async (req, res) => {
 
 exports.createClassLevelController = async (req, res) => {
   const data = req.body;
-  const userId = req.user._id;
+  const userId = req.userAuth.id;
   const result = await createClassLevelService(data, userId, res);
   return result;
 };
@@ -35,7 +35,7 @@ exports.getClassLevelController = async (req, res) => {
 exports.updateClassLevelController = async (req, res) => {
   const data = req.body;
   const id = req.params.id;
-  const userId = req.user._id;
+  const userId = req.userAuth.id;
   const result = await updateClassLevelService(data, id, userId, res);
   return result;
 };
@@ -59,7 +59,7 @@ exports.getClassLevelsAndSubclassesForTeacherController = async (req, res) => {
 
 exports.assignTeachersToClassController = async (req, res) => {
   const data = req.body;
-  const userId = req.user._id;
+  const userId = req.userAuth.id;
   const result = await assignTeachersToClassService(data, userId, res);
   return result;
 };
@@ -67,7 +67,7 @@ exports.assignTeachersToClassController = async (req, res) => {
 exports.addSubclassToClassLevelController = async (req, res) => {
   const data = req.body;
   const classId = req.params.id;
-  const userId = req.user._id;
+  const userId = req.userAuth.id;
   const result = await addSubclassToClassLevelService(data, classId, userId, res);
   return result;
 };
