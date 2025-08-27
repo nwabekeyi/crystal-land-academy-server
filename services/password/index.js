@@ -6,7 +6,6 @@ const Student = require('../../models/Students/students.model');
 const Admin = require('../../models/Staff/admin.model');
 const Teacher = require('../../models/Staff/teachers.model');
 const { prodUrl } = require('../../config/env.Config');
-const { resetPasswordId } = require('../../utils/emailTemplates');
 
 // Map roles to models
 const models = {
@@ -19,7 +18,7 @@ const models = {
 const findUserByEmail = async (email) => {
   if (!email) {
     throw new Error('Email is required');
-  }
+  };
 
   for (const [role, Model] of Object.entries(models)) {
     const user = await Model.findOne({ email });
@@ -44,16 +43,17 @@ const sendPasswordResetLink = async (email) => {
 
   await sendEmail({
     to: email,
-    templateId: resetPasswordId,
+    template: 'resetPassword.ejs', // Specify EJS file in views/emails
     dynamicTemplateData: {
       resetLink,
+      senderName: 'Crystal-land Int\'l Academy', // Optional: match senderName from env.Config
+      year: new Date().getFullYear(), // Optional: for footer
     },
     subject: 'Reset Your Crystal Land Academy Password',
   });
 
   return { message: 'Password reset link sent to your email' };
 };
-
 // Reset password
 const resetPassword = async (token, newPassword) => {
   if (!token || !newPassword) {
