@@ -57,10 +57,12 @@ exports.createStudentPaymentController = async (req, res) => {
  */
 exports.getAllStudentPaymentsController = async (req, res) => {
   try {
-    const { page = 1, limit = 10, sortBy = "createdAt", sortDirection = "desc", studentId } = req.query;
+    const { page = 1, limit = 10, sortBy = "createdAt", sortDirection = "desc", studentId, section } = req.query;
 
     const skip = (page - 1) * limit;
-    const filter = studentId ? { studentId } : {}; // Filter by studentId if provided
+    const filter = {};
+    if (studentId) filter.studentId = studentId;
+    if (section) filter.section = section; // Add section to filter if provided
 
     const payments = await getAllStudentPaymentsService(filter, skip, parseInt(limit), sortBy, sortDirection);
 

@@ -16,6 +16,11 @@ const otherRevenueSchema = new mongoose.Schema(
       type: Date,
       required: [true, 'Date is required'],
     },
+    description:{
+      type:String,
+      trim:true,
+      required: [true, 'Description is required'],
+    },
     createdBy: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',

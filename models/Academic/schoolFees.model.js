@@ -16,7 +16,7 @@ const schoolFeesSchema= new Schema(
     },
     method: {
       type: String,
-      enum: ["Cash", "Transfer", "POS", "Card", "Other"],
+      enum: ["Cash", "Bank Transfer", "POS", "Card", "Other"],
       default: "Cash",
     },
     reference: {
