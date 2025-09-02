@@ -19,7 +19,7 @@ const generateToken = require("../../utils/tokenGenerator");
  */
 exports.registerAdminService = async (data, res) => {
   const { firstName, lastName, email, password = '123456789' } = data;
-
+console.log(data)
   // Check if admin with the same email already exists
   const isAdminExist = await Admin.findOne({ email });
 
